@@ -11,7 +11,7 @@ services:
       - key: ADMIN_EMAIL
         value: "admin@mukatabak.app"
       - key: ADMIN_PASSWORD
-        value: "MukatabakAdmin!2026"
+        generateValue: true
       - key: SESSION_SECRET
         generateValue: true
       - key: STARTING_CASH

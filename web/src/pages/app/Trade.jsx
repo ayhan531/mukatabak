@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { TrendingUp, TrendingDown, ChevronDown } from 'lucide-react'
 import { api } from '../../lib/api'
 import { fmtMoney, fmtPct } from '../../lib/format'
@@ -7,9 +7,10 @@ import { fmtMoney, fmtPct } from '../../lib/format'
 export default function Trade() {
   const { symbol } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [stocks, setStocks] = useState([])
   const [selected, setSelected] = useState(symbol || '')
-  const [side, setSide] = useState('buy')
+  const [side, setSide] = useState(location.state?.side === 'sell' ? 'sell' : 'buy')
   const [qty, setQty] = useState(1)
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -29,8 +30,9 @@ export default function Trade() {
   const submit = async () => {
     setMsg(null); setBusy(true)
     try {
-      await api.trade({ symbol: selected, side, qty: Number(qty) })
-      setMsg({ ok: true, text: `${side === 'buy' ? 'Alım' : 'Satım'} emri gerçekleşti: ${qty} adet ${selected}` })
+      const res = await api.trade({ symbol: selected, side, qty: Number(qty) })
+      const settleTxt = res?.settle_date ? ` Valör tarihi: ${res.settle_date} (T+2).` : ''
+      setMsg({ ok: true, text: `${side === 'buy' ? 'Alım' : 'Satım'} emri gerçekleşti: ${qty} adet ${selected}.${settleTxt}` })
       setQty(1)
     } catch (e) {
       setMsg({ ok: false, text: e.message })
@@ -97,7 +99,8 @@ export default function Trade() {
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6 }}>
-        Bu işlem demo/sanal bakiyen üzerinden gerçekleşir, gerçek para hareketi içermez.
+        Bu işlem demo/sanal bakiyen üzerinden gerçekleşir, gerçek para hareketi içermez. Nakit valörü
+        gerçek BIST kuralına uygun şekilde T+2 (işlem tarihinden 2 iş günü sonra) uygulanır.
       </p>
     </div>
   )

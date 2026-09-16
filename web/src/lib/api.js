@@ -26,11 +26,20 @@ export const api = {
 
   stocks: () => request('/stocks'),
   stock: (symbol) => request(`/stocks/${symbol}`),
+  stockHistory: (symbol) => request(`/stocks/${symbol}/history`),
   portfolio: () => request('/portfolio'),
   orders: () => request('/orders'),
   trade: (body) => request('/trade', { method: 'POST', body }),
 
   news: () => request('/news'),
+
+  walletTransactions: () => request('/wallet/transactions'),
+  walletDeposit: (amount) => request('/wallet/deposit', { method: 'POST', body: { amount } }),
+  walletWithdraw: (amount) => request('/wallet/withdraw', { method: 'POST', body: { amount } }),
+
+  updateProfile: (body) => request('/me', { method: 'PATCH', body }),
+  changePassword: (body) => request('/me/password', { method: 'POST', body }),
+  updateNotifications: (body) => request('/me/notifications', { method: 'PATCH', body }),
 
   blogList: () => request('/blog'),
   blogPost: (slug) => request(`/blog/${slug}`),

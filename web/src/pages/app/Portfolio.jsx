@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { TrendingUp, TrendingDown, Clock, CheckCircle2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { fmtMoney, fmtPct } from '../../lib/format'
 
-const TABS = ['Varlıklarım', 'Geçmiş', 'Emirler']
+const TABS = ['Varlıklarım', 'Geçmiş', 'Emirler (T+2)']
 
 export default function Portfolio() {
   const [portfolio, setPortfolio] = useState(null)
@@ -12,14 +12,16 @@ export default function Portfolio() {
   const [tab, setTab] = useState('Varlıklarım')
   const navigate = useNavigate()
 
-  useEffect(() => {
+  const load = () => {
     api.portfolio().then(setPortfolio).catch(() => {})
     api.orders().then(d => setOrders(d.orders)).catch(() => {})
-  }, [])
+  }
+
+  useEffect(() => { load() }, [])
 
   const positions = portfolio?.positions || []
-  const filled = orders.filter(o => o.status === 'filled')
-  const openOrders = orders.filter(o => o.status !== 'filled')
+  const settled = orders.filter(o => o.settled)
+  const pendingSettle = orders.filter(o => !o.settled)
 
   return (
     <div style={{ paddingTop: 8 }}>
@@ -44,12 +46,17 @@ export default function Portfolio() {
             <div style={{ fontWeight: 700, fontSize: 15 }}>{portfolio ? fmtMoney(portfolio.available_cash) : '—'}</div>
           </div>
         </div>
+        {portfolio && portfolio.pending_settlement > 0 && (
+          <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 10, background: 'rgba(59,108,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--brand-blue)', fontWeight: 600 }}>
+            <Clock size={14} /> {fmtMoney(portfolio.pending_settlement)} tutarındaki satış bedeli valörü (T+2) gelince kullanılabilir bakiyene eklenecek.
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
-            flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', fontWeight: 700, fontSize: 13,
+            flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', fontWeight: 700, fontSize: 12.5,
             background: tab === t ? 'var(--brand-blue)' : 'transparent',
             color: tab === t ? '#fff' : 'var(--text-secondary)',
           }}>{t}</button>
@@ -62,7 +69,7 @@ export default function Portfolio() {
             <span>Sembol</span><span style={{ textAlign: 'right' }}>Adet</span><span style={{ textAlign: 'right' }}>Güncel Değer</span>
           </div>
           {positions.map(p => (
-            <div key={p.symbol} onClick={() => navigate(`/app/al-sat/${p.symbol}`)} style={{ display: 'grid', gridTemplateColumns: '1.6fr 0.8fr 1fr', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
+            <div key={p.symbol} onClick={() => navigate(`/app/hisse/${p.symbol}`)} style={{ display: 'grid', gridTemplateColumns: '1.6fr 0.8fr 1fr', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <img src={`/stocks/logo_${p.symbol.toLowerCase()}.png`} width={28} height={28} style={{ borderRadius: 8 }} alt="" onError={e => e.currentTarget.style.visibility = 'hidden'} />
                 <div>
@@ -85,15 +92,15 @@ export default function Portfolio() {
 
       {tab === 'Geçmiş' && (
         <div className="card" style={{ padding: 8 }}>
-          {filled.map(o => <OrderRow key={o.id} o={o} />)}
-          {filled.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13.5 }}>İşlem geçmişin boş.</div>}
+          {settled.map(o => <OrderRow key={o.id} o={o} />)}
+          {settled.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13.5 }}>Valörü tamamlanmış işlem yok.</div>}
         </div>
       )}
 
-      {tab === 'Emirler' && (
+      {tab === 'Emirler (T+2)' && (
         <div className="card" style={{ padding: 8 }}>
-          {openOrders.map(o => <OrderRow key={o.id} o={o} />)}
-          {openOrders.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13.5 }}>Bekleyen emrin yok.</div>}
+          {pendingSettle.map(o => <OrderRow key={o.id} o={o} />)}
+          {pendingSettle.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13.5 }}>Valör bekleyen işlemin yok.</div>}
         </div>
       )}
     </div>
@@ -109,11 +116,13 @@ function OrderRow({ o }) {
       </div>
       <div style={{ flex: 1 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5 }}>{o.symbol} · {o.qty} adet</div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{o.date}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>{o.date} · Valör: {o.settle_date}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontWeight: 700, fontSize: 13.5 }}>{fmtMoney(o.total)}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{o.status === 'filled' ? 'Gerçekleşti' : 'Bekliyor'}</div>
+        <div style={{ fontSize: 11, color: o.settled ? 'var(--up-green)' : 'var(--brand-blue)', display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end', fontWeight: 700 }}>
+          {o.settled ? <CheckCircle2 size={11} /> : <Clock size={11} />} {o.settled ? 'Valör Tamam' : 'T+2 Bekliyor'}
+        </div>
       </div>
     </div>
   )

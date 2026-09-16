@@ -50,7 +50,7 @@ export default function Home() {
         <SectionHead title="Piyasa Özeti" onMore={() => navigate('/app/hisseler')} />
         <div className="card" style={{ padding: 8 }}>
           {stocks.map(s => (
-            <div key={s.symbol} onClick={() => navigate(`/app/al-sat/${s.symbol}`)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 10px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
+            <div key={s.symbol} onClick={() => navigate(`/app/hisse/${s.symbol}`)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 10px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer' }}>
               <img src={`/stocks/logo_${s.symbol.toLowerCase()}.png`} width={32} height={32} style={{ borderRadius: 8 }} alt="" onError={e => e.currentTarget.style.visibility = 'hidden'} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{s.symbol}</div>
@@ -69,13 +69,14 @@ export default function Home() {
       </div>
 
       <div>
-        <SectionHead title="Piyasa Haberleri" icon={Newspaper} />
+        <SectionHead title="Piyasa Haberleri" icon={Newspaper} onMore={() => navigate('/app/haberler')} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {news.map((n, i) => (
-            <div key={i} className="card" style={{ padding: 14 }}>
+            <a key={i} href={n.link || undefined} target={n.link ? '_blank' : undefined} rel="noreferrer" className="card" style={{ padding: 14, display: 'block' }}>
               <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>{n.title}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{n.summary}</div>
-            </div>
+              <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: n.source ? 6 : 0 }}>{n.summary}</div>
+              {n.source && <div style={{ fontSize: 11, color: 'var(--brand-blue)', fontWeight: 700 }}>{n.source}</div>}
+            </a>
           ))}
         </div>
       </div>

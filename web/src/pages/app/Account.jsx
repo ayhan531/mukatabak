@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { User, Shield, Bell, FileText, HelpCircle, LogOut, ChevronRight, Settings2 } from 'lucide-react'
+import { User, Shield, Bell, FileText, HelpCircle, LogOut, ChevronRight, Settings2, Wallet as WalletIcon } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext.jsx'
 
 export default function Account() {
@@ -7,9 +7,10 @@ export default function Account() {
   const navigate = useNavigate()
 
   const items = [
-    { icon: User, label: 'Kişisel Bilgiler', desc: 'Ad, e-posta ve iletişim bilgilerin' },
-    { icon: Shield, label: 'Güvenlik', desc: 'Şifre değiştir, oturumları yönet' },
-    { icon: Bell, label: 'Bildirim Tercihleri', desc: 'Fiyat alarmı ve haber bildirimleri' },
+    { icon: User, label: 'Kişisel Bilgiler', desc: 'Ad, e-posta ve iletişim bilgilerin', onClick: () => navigate('/app/hesap/kisisel') },
+    { icon: Shield, label: 'Güvenlik', desc: 'Şifre değiştir', onClick: () => navigate('/app/hesap/guvenlik') },
+    { icon: Bell, label: 'Bildirim Tercihleri', desc: 'Fiyat alarmı ve haber bildirimleri', onClick: () => navigate('/app/hesap/bildirimler') },
+    { icon: WalletIcon, label: 'Sanal Bakiye', desc: 'Bakiye yükle / çek, işlem geçmişi', onClick: () => navigate('/app/hesap/bakiye') },
     { icon: FileText, label: 'İşlem Geçmişi', desc: 'Tüm demo işlemlerini görüntüle', onClick: () => navigate('/app/portfoy') },
     { icon: HelpCircle, label: 'Yardım Merkezi', desc: 'S.S.S. ve destek', onClick: () => navigate('/sss') },
   ]

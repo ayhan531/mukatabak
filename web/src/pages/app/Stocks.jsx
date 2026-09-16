@@ -43,7 +43,7 @@ export default function Stocks() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {gainers.slice(0, 4).map(s => (
-              <StockRow key={s.symbol} s={s} onClick={() => navigate(`/app/al-sat/${s.symbol}`)} />
+              <StockRow key={s.symbol} s={s} onClick={() => navigate(`/app/hisse/${s.symbol}`)} />
             ))}
           </div>
         </div>
@@ -52,7 +52,7 @@ export default function Stocks() {
       <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 10 }}>{q ? 'Arama Sonuçları' : 'Tüm Hisseler'}</div>
       <div className="card" style={{ padding: 8 }}>
         {filtered.map(s => (
-          <div key={s.symbol} onClick={() => navigate(`/app/al-sat/${s.symbol}`)} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div key={s.symbol} onClick={() => navigate(`/app/hisse/${s.symbol}`)} style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>
             <StockRow s={s} />
           </div>
         ))}

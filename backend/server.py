@@ -5,6 +5,7 @@ Kimlik dogrulama + sanal/demo hisse alim-satim + admin paneli + blog/SSS CMS sag
 Gercek para transferi, IBAN toplama veya kimlik dogrulamali para cekme YOKTUR.
 """
 
+from datetime import date, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -16,9 +17,12 @@ import json
 import math
 import mimetypes
 import os
+import re
 import secrets
 import sqlite3
 import time
+import urllib.request
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "data"))
@@ -43,12 +47,67 @@ STOCKS = [
     {"symbol": "SISE", "name": "Şişecam", "base": 44.90, "seed": 3.3},
 ]
 
-NEWS = [
-    {"title": "BIST 100 endeksinde güne yükselişle başlandı", "summary": "Bankacılık ve sanayi hisselerindeki alımlar endeksi yukarı taşıdı."},
-    {"title": "Merkez Bankası faiz kararı yaklaşıyor", "summary": "Piyasa katılımcıları bu hafta açıklanacak karara odaklandı."},
-    {"title": "Teknoloji hisselerinde yatırımcı ilgisi sürüyor", "summary": "Küresel piyasalardaki olumlu hava yerel teknoloji hisselerine de yansıdı."},
-    {"title": "Enerji sektöründe volatilite arttı", "summary": "Uluslararası petrol fiyatlarındaki dalgalanma enerji hisselerini etkiliyor."},
+FALLBACK_NEWS = [
+    {"title": "BIST 100 endeksinde güne yükselişle başlandı", "summary": "Bankacılık ve sanayi hisselerindeki alımlar endeksi yukarı taşıdı.", "source": "Mukatabak", "link": "", "image": ""},
+    {"title": "Merkez Bankası faiz kararı yaklaşıyor", "summary": "Piyasa katılımcıları bu hafta açıklanacak karara odaklandı.", "source": "Mukatabak", "link": "", "image": ""},
+    {"title": "Teknoloji hisselerinde yatırımcı ilgisi sürüyor", "summary": "Küresel piyasalardaki olumlu hava yerel teknoloji hisselerine de yansıdı.", "source": "Mukatabak", "link": "", "image": ""},
+    {"title": "Enerji sektöründe volatilite arttı", "summary": "Uluslararası petrol fiyatlarındaki dalgalanma enerji hisselerini etkiliyor.", "source": "Mukatabak", "link": "", "image": ""},
 ]
+
+NEWS_FEEDS = [
+    ("BloombergHT", "https://www.bloomberght.com/rss"),
+    ("Dünya Gazetesi", "https://www.dunya.com/rss"),
+]
+
+_news_cache = {"ts": 0, "items": []}
+NEWS_CACHE_TTL = 600  # 10 dakika
+
+
+def _strip_html(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text or "").strip()
+
+
+def fetch_news():
+    """Gercek RSS kaynaklarindan haber ceker, basarisiz olursa onbellegi/varsayilani kullanir."""
+    if _news_cache["items"] and time.time() - _news_cache["ts"] < NEWS_CACHE_TTL:
+        return _news_cache["items"]
+
+    collected = []
+    for source_name, url in NEWS_FEEDS:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (MukatabakBot)"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                raw = resp.read(2_000_000)
+            # DOCTYPE/ENTITY bildirimi olan besleme XXE/entity-expansion riski tasir; atla.
+            if b"<!ENTITY" in raw[:2000] or b"<!DOCTYPE" in raw[:2000]:
+                continue
+            root = ET.fromstring(raw)
+            items = root.findall(".//item")
+            for it in items[:8]:
+                title = _strip_html(it.findtext("title") or "")
+                desc = _strip_html(it.findtext("description") or "")
+                link = (it.findtext("link") or "").strip()
+                pub = (it.findtext("pubDate") or "").strip()
+                if not title:
+                    continue
+                collected.append({
+                    "title": title,
+                    "summary": (desc[:220] + "…") if len(desc) > 220 else desc,
+                    "source": source_name,
+                    "link": link,
+                    "pubDate": pub,
+                })
+        except Exception:
+            continue
+        if len(collected) >= 8:
+            break
+
+    if collected:
+        _news_cache["items"] = collected
+        _news_cache["ts"] = time.time()
+        return collected
+
+    return FALLBACK_NEWS
 
 DEFAULT_FAQ = [
     ("Mukatabak gerçek bir yatırım/aracılık hizmeti mi?", "Hayır. Mukatabak; hisse takibi ve alım-satımı sanal bir bakiye üzerinden simüle eden bir demo/eğitim platformudur. Gerçek para transferi, mevduat toplama veya yatırım danışmanlığı sunmaz."),
@@ -109,6 +168,8 @@ def init_db():
             role TEXT NOT NULL DEFAULT 'user',
             active INTEGER NOT NULL DEFAULT 1,
             cash REAL NOT NULL DEFAULT 0,
+            notify_price_alerts INTEGER NOT NULL DEFAULT 1,
+            notify_news INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS positions (
@@ -127,6 +188,15 @@ def init_db():
             price REAL NOT NULL,
             total REAL NOT NULL,
             status TEXT NOT NULL DEFAULT 'filled',
+            settle_date TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            amount REAL NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
@@ -149,6 +219,17 @@ def init_db():
         """
     )
     conn.commit()
+
+    for stmt in (
+        "ALTER TABLE users ADD COLUMN notify_price_alerts INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE users ADD COLUMN notify_news INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE orders ADD COLUMN settle_date TEXT NOT NULL DEFAULT ''",
+    ):
+        try:
+            conn.execute(stmt)
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
 
     if conn.execute("SELECT COUNT(*) c FROM blog_posts").fetchone()["c"] == 0:
         for p in DEFAULT_POSTS:
@@ -188,6 +269,37 @@ def now():
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def today_str():
+    return date.today().isoformat()
+
+
+def add_business_days(d: date, n: int) -> date:
+    """T+n valor tarihi: hafta sonlarini atlayarak n is gunu ekler."""
+    added = 0
+    cur = d
+    while added < n:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:  # 0=Pazartesi ... 4=Cuma
+            added += 1
+    return cur
+
+
+def settle_date_for(trade_date: date) -> str:
+    return add_business_days(trade_date, 2).isoformat()
+
+
+def unsettled_sell_total(conn, user_id: int) -> float:
+    row = conn.execute(
+        "SELECT COALESCE(SUM(total),0) s FROM orders WHERE user_id=? AND side='sell' AND settle_date > ?",
+        (user_id, today_str()),
+    ).fetchone()
+    return round(row["s"], 2)
+
+
+def available_cash_for(conn, user_row) -> float:
+    return round(user_row["cash"] - unsettled_sell_total(conn, user_row["id"]), 2)
+
+
 # ── Sifreleme / Oturum ───────────────────────────────────────────────────
 
 def hash_password(password: str, salt: str | None = None):
@@ -225,8 +337,8 @@ def read_session_token(token: str):
 
 # ── Fiyat simulasyonu ────────────────────────────────────────────────────
 
-def live_stock(stock):
-    t = time.time() / 60.0
+def live_stock(stock, at_time=None):
+    t = (at_time if at_time is not None else time.time()) / 60.0
     wave = math.sin(t * 0.11 + stock["seed"]) * 0.009 + math.sin(t * 0.033 + stock["seed"] * 2) * 0.004
     price = round(stock["base"] * (1 + wave), 2)
     change_pct = round(wave * 100, 2)
@@ -238,15 +350,30 @@ def live_stock(stock):
     }
 
 
-def get_stock(symbol):
+def find_stock(symbol):
     for s in STOCKS:
         if s["symbol"] == symbol.upper():
-            return live_stock(s)
+            return s
     return None
+
+
+def get_stock(symbol):
+    s = find_stock(symbol)
+    return live_stock(s) if s else None
 
 
 def all_stocks():
     return [live_stock(s) for s in STOCKS]
+
+
+def stock_history(stock, points=24, step_minutes=5):
+    now_ts = time.time()
+    series = []
+    for i in range(points, -1, -1):
+        ts = now_ts - i * step_minutes * 60
+        snap = live_stock(stock, at_time=ts)
+        series.append({"t": time.strftime("%H:%M", time.localtime(ts)), "price": snap["price"]})
+    return series
 
 
 # ── HTTP Handler ─────────────────────────────────────────────────────────
@@ -308,7 +435,11 @@ class Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def user_public(row):
-        return {"id": row["id"], "name": row["name"], "email": row["email"], "role": row["role"]}
+        return {
+            "id": row["id"], "name": row["name"], "email": row["email"], "role": row["role"],
+            "notify_price_alerts": bool(row["notify_price_alerts"]), "notify_news": bool(row["notify_news"]),
+            "created_at": row["created_at"],
+        }
 
     # -- yönlendirme --
     def do_GET(self):
@@ -386,9 +517,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not st:
                     return self.send_json({"error": "Hisse bulunamadı."}, 404)
                 return self.send_json({"stock": st})
+            if method == "GET" and len(parts) == 3 and parts[0] == "stocks" and parts[2] == "history":
+                raw = find_stock(parts[1])
+                if not raw:
+                    return self.send_json({"error": "Hisse bulunamadı."}, 404)
+                return self.send_json({"points": stock_history(raw)})
 
             if method == "GET" and route == "/news":
-                return self.send_json({"items": NEWS})
+                return self.send_json({"items": fetch_news(), "live": bool(_news_cache["items"])})
 
             if method == "GET" and route == "/blog":
                 rows = conn.execute("SELECT * FROM blog_posts ORDER BY date DESC").fetchall()
@@ -409,6 +545,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_orders(conn)
             if method == "POST" and route == "/trade":
                 return self.api_trade(conn)
+
+            if method == "GET" and route == "/wallet/transactions":
+                return self.api_wallet_transactions(conn)
+            if method == "POST" and route == "/wallet/deposit":
+                return self.api_wallet_deposit(conn)
+            if method == "POST" and route == "/wallet/withdraw":
+                return self.api_wallet_withdraw(conn)
+
+            if method == "PATCH" and route == "/me":
+                return self.api_me_update(conn)
+            if method == "POST" and route == "/me/password":
+                return self.api_me_password(conn)
+            if method == "PATCH" and route == "/me/notifications":
+                return self.api_me_notifications(conn)
 
             if method == "GET" and route == "/admin/stats":
                 return self.api_admin_stats(conn)
@@ -488,9 +638,11 @@ class Handler(BaseHTTPRequestHandler):
         total_value = round(user["cash"] + holdings_value, 2)
         day_change = round(day_change, 2)
         day_change_pct = round((day_change / total_value) * 100, 2) if total_value > 0 else 0
+        pending_settlement = unsettled_sell_total(conn, user["id"])
         self.send_json({
             "cash": round(user["cash"], 2),
-            "available_cash": round(user["cash"], 2),
+            "available_cash": available_cash_for(conn, user),
+            "pending_settlement": pending_settlement,
             "holdings_value": round(holdings_value, 2),
             "total_value": total_value,
             "day_change": day_change,
@@ -505,9 +657,11 @@ class Handler(BaseHTTPRequestHandler):
         rows = conn.execute(
             "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", (user["id"],)
         ).fetchall()
+        today = today_str()
         orders = [{
             "id": r["id"], "symbol": r["symbol"], "side": r["side"], "qty": r["qty"],
             "price": r["price"], "total": r["total"], "status": r["status"], "date": r["created_at"],
+            "settle_date": r["settle_date"], "settled": bool(r["settle_date"]) and r["settle_date"] <= today,
         } for r in rows]
         self.send_json({"orders": orders})
 
@@ -529,9 +683,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Hisse bulunamadı."}, 404)
 
         total = round(stock["price"] * qty, 2)
+        trade_date = date.today()
+        settle = settle_date_for(trade_date)
+
         if side == "buy":
-            if user["cash"] < total:
-                return self.send_json({"error": "Yetersiz sanal bakiye."}, 400)
+            available = available_cash_for(conn, user)
+            if available < total:
+                return self.send_json({"error": f"Yetersiz kullanılabilir bakiye. Kullanılabilir: {available:.2f} TL"}, 400)
             new_cash = user["cash"] - total
             conn.execute("UPDATE users SET cash = ? WHERE id = ?", (new_cash, user["id"]))
             existing = conn.execute("SELECT qty FROM positions WHERE user_id=? AND symbol=?", (user["id"], symbol)).fetchone()
@@ -547,11 +705,108 @@ class Handler(BaseHTTPRequestHandler):
             conn.execute("UPDATE users SET cash = cash + ? WHERE id = ?", (total, user["id"]))
 
         conn.execute(
-            "INSERT INTO orders (user_id,symbol,side,qty,price,total,status,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (user["id"], symbol, side, qty, stock["price"], total, "filled", now()),
+            "INSERT INTO orders (user_id,symbol,side,qty,price,total,status,settle_date,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (user["id"], symbol, side, qty, stock["price"], total, "filled", settle, now()),
+        )
+        conn.commit()
+        self.send_json({"ok": True, "settle_date": settle})
+
+    # -- cuzdan (demo sanal bakiye) --
+    def api_wallet_transactions(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        rows = conn.execute(
+            "SELECT * FROM wallet_transactions WHERE user_id=? ORDER BY created_at DESC LIMIT 50", (user["id"],)
+        ).fetchall()
+        self.send_json({"transactions": [dict(r) for r in rows]})
+
+    def api_wallet_deposit(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        body = self.read_json()
+        try:
+            amount = float(body.get("amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        if amount <= 0 or amount > 1_000_000:
+            return self.send_json({"error": "Geçersiz tutar (max 1.000.000 TL)."}, 400)
+        conn.execute("UPDATE users SET cash = cash + ? WHERE id=?", (amount, user["id"]))
+        conn.execute(
+            "INSERT INTO wallet_transactions (user_id,type,amount,created_at) VALUES (?,?,?,?)",
+            (user["id"], "deposit", amount, now()),
         )
         conn.commit()
         self.send_json({"ok": True})
+
+    def api_wallet_withdraw(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        body = self.read_json()
+        try:
+            amount = float(body.get("amount") or 0)
+        except (TypeError, ValueError):
+            amount = 0
+        available = available_cash_for(conn, user)
+        if amount <= 0:
+            return self.send_json({"error": "Geçersiz tutar."}, 400)
+        if amount > available:
+            return self.send_json({"error": f"Yetersiz kullanılabilir bakiye. Kullanılabilir: {available:.2f} TL"}, 400)
+        conn.execute("UPDATE users SET cash = cash - ? WHERE id=?", (amount, user["id"]))
+        conn.execute(
+            "INSERT INTO wallet_transactions (user_id,type,amount,created_at) VALUES (?,?,?,?)",
+            (user["id"], "withdraw", amount, now()),
+        )
+        conn.commit()
+        self.send_json({"ok": True})
+
+    # -- profil / guvenlik / bildirimler --
+    def api_me_update(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        body = self.read_json()
+        name = (body.get("name") or "").strip()
+        email = (body.get("email") or "").strip().lower()
+        if not name or not email:
+            return self.send_json({"error": "Ad ve e-posta gerekli."}, 400)
+        clash = conn.execute("SELECT id FROM users WHERE email=? AND id<>?", (email, user["id"])).fetchone()
+        if clash:
+            return self.send_json({"error": "Bu e-posta başka bir hesapta kullanılıyor."}, 409)
+        conn.execute("UPDATE users SET name=?, email=? WHERE id=?", (name, email, user["id"]))
+        conn.commit()
+        updated = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+        self.send_json({"user": self.user_public(updated)})
+
+    def api_me_password(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        body = self.read_json()
+        current = body.get("current_password") or ""
+        new_password = body.get("new_password") or ""
+        if not verify_password(current, user["salt"], user["password_hash"]):
+            return self.send_json({"error": "Mevcut şifre hatalı."}, 401)
+        if len(new_password) < 6:
+            return self.send_json({"error": "Yeni şifre en az 6 karakter olmalı."}, 400)
+        salt, pw_hash = hash_password(new_password)
+        conn.execute("UPDATE users SET salt=?, password_hash=? WHERE id=?", (salt, pw_hash, user["id"]))
+        conn.commit()
+        self.send_json({"ok": True})
+
+    def api_me_notifications(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        body = self.read_json()
+        price_alerts = int(bool(body.get("notify_price_alerts", user["notify_price_alerts"])))
+        news = int(bool(body.get("notify_news", user["notify_news"])))
+        conn.execute("UPDATE users SET notify_price_alerts=?, notify_news=? WHERE id=?", (price_alerts, news, user["id"]))
+        conn.commit()
+        updated = conn.execute("SELECT * FROM users WHERE id=?", (user["id"],)).fetchone()
+        self.send_json({"user": self.user_public(updated)})
 
     # -- admin --
     def api_admin_stats(self, conn):

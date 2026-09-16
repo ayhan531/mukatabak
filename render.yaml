@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: mukatabak
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python -m py_compile backend/server.py
+    startCommand: python backend/server.py
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ADMIN_EMAIL
+        value: "admin@mukatabak.app"
+      - key: ADMIN_PASSWORD
+        value: "MukatabakAdmin!2026"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: STARTING_CASH
+        value: "100000"
+    healthCheckPath: /api/faq

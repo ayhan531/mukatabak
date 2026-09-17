@@ -18,13 +18,15 @@ import Home from './pages/app/Home.jsx'
 import Stocks from './pages/app/Stocks.jsx'
 import StockDetail from './pages/app/StockDetail.jsx'
 import News from './pages/app/News.jsx'
-import Trade from './pages/app/Trade.jsx'
+import TradeRoute from './pages/app/TradeRoute.jsx'
 import Portfolio from './pages/app/Portfolio.jsx'
 import Account from './pages/app/Account.jsx'
 import PersonalInfo from './pages/app/account/PersonalInfo.jsx'
 import Security from './pages/app/account/Security.jsx'
 import Notifications from './pages/app/account/Notifications.jsx'
 import Wallet from './pages/app/account/Wallet.jsx'
+import Settings from './pages/app/account/Settings.jsx'
+import Legal from './pages/app/account/Legal.jsx'
 
 import AdminDashboard from './pages/admin/AdminDashboard.jsx'
 import AdminUsers from './pages/admin/AdminUsers.jsx'
@@ -72,14 +74,16 @@ export default function App() {
         <Route path="hisseler" element={<Stocks />} />
         <Route path="hisse/:symbol" element={<StockDetail />} />
         <Route path="haberler" element={<News />} />
-        <Route path="al-sat" element={<Trade />} />
-        <Route path="al-sat/:symbol" element={<Trade />} />
+        <Route path="al-sat" element={<TradeRoute />} />
+        <Route path="al-sat/:symbol" element={<TradeRoute />} />
         <Route path="portfoy" element={<Portfolio />} />
         <Route path="hesap" element={<Account />} />
         <Route path="hesap/kisisel" element={<PersonalInfo />} />
         <Route path="hesap/guvenlik" element={<Security />} />
         <Route path="hesap/bildirimler" element={<Notifications />} />
         <Route path="hesap/bakiye" element={<Wallet />} />
+        <Route path="hesap/ayarlar" element={<Settings />} />
+        <Route path="hesap/sozlesmeler" element={<Legal />} />
       </Route>
 
       <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>

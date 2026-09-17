@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import { api } from '../../../lib/api'
 import { fmtMoney } from '../../../lib/format'
@@ -8,9 +8,10 @@ const QUICK_AMOUNTS = [1000, 5000, 10000, 25000]
 
 export default function Wallet() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [portfolio, setPortfolio] = useState(null)
   const [tx, setTx] = useState([])
-  const [mode, setMode] = useState('deposit')
+  const [mode, setMode] = useState(location.state?.mode === 'withdraw' ? 'withdraw' : 'deposit')
   const [amount, setAmount] = useState('')
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -108,7 +109,7 @@ export default function Wallet() {
 
 function ModeBtn({ active, icon: Icon, label, onClick }) {
   return (
-    <button onClick={onClick} className="btn" style={{ flex: 1, background: active ? 'var(--brand-blue)' : '#fff', color: active ? '#fff' : 'var(--text-secondary)', border: '1px solid var(--border-subtle)', fontWeight: 700, gap: 6 }}>
+    <button onClick={onClick} className="btn" style={{ flex: 1, background: active ? 'var(--brand-blue)' : 'var(--bg-card)', color: active ? '#fff' : 'var(--text-secondary)', border: '1px solid var(--border-subtle)', fontWeight: 700, gap: 6 }}>
       <Icon size={16} /> {label}
     </button>
   )

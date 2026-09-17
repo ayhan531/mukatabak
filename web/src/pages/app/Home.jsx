@@ -61,7 +61,7 @@ export default function Home() {
         <input
           readOnly
           placeholder="Hisse ara"
-          style={{ width: '100%', padding: '13px 14px 13px 42px', borderRadius: 14, border: '1.5px solid var(--border-subtle)', fontSize: 14.5, outline: 'none', background: '#fff', cursor: 'pointer' }}
+          style={{ width: '100%', padding: '13px 14px 13px 42px', borderRadius: 14, border: '1.5px solid var(--border-subtle)', fontSize: 14.5, outline: 'none', background: 'var(--bg-card)', cursor: 'pointer' }}
         />
       </div>
 

@@ -18,7 +18,7 @@ export default function SiteLayout() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'rgba(244,247,254,0.85)', backdropFilter: 'blur(10px)', borderBottom: '1px solid var(--border-subtle)' }}>
+      <header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'var(--bg-header-glass)', backdropFilter: 'blur(10px)', borderBottom: '1px solid var(--border-subtle)' }}>
         <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
           <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700, fontSize: 20 }}>
             <img src="/brand/appicon.png" width={36} height={36} alt="Mukatabak" style={{ borderRadius: 10 }} />

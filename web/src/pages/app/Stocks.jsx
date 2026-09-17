@@ -43,7 +43,7 @@ export default function Stocks() {
           value={q}
           onChange={e => setQ(e.target.value)}
           placeholder="Hisse ara"
-          style={{ width: '100%', padding: '13px 14px 13px 42px', borderRadius: 14, border: '1.5px solid var(--border-subtle)', fontSize: 14.5, outline: 'none', background: '#fff' }}
+          style={{ width: '100%', padding: '13px 14px 13px 42px', borderRadius: 14, border: '1.5px solid var(--border-subtle)', fontSize: 14.5, outline: 'none', background: 'var(--bg-card)' }}
         />
       </div>
 
@@ -103,7 +103,7 @@ export default function Stocks() {
 function StockRow({ s, history, onClick }) {
   const up = s.change_pct >= 0
   return (
-    <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 14, padding: '10px 12px', cursor: 'pointer' }}>
+    <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', borderRadius: 14, padding: '10px 12px', cursor: 'pointer' }}>
       <img src={`/stocks/logo_${s.symbol.toLowerCase()}.png`} width={34} height={34} style={{ borderRadius: 9, flexShrink: 0 }} alt="" onError={e => e.currentTarget.style.visibility = 'hidden'} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{s.symbol}</div>

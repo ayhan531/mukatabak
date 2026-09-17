@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { Home, LineChart, Wallet, User, ArrowLeftRight, Bell, LogOut, CheckCircle2 } from 'lucide-react'
+import { Home, LineChart, PieChart, User, ArrowLeftRight, Bell, LogOut, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
+import { useTradeModal } from '../context/TradeModalContext.jsx'
 import { api } from '../lib/api'
 import { fmtMoney } from '../lib/format'
+import TradeSheet from '../components/TradeSheet.jsx'
 
 const TABS = [
   { to: '/app', label: 'Ana Sayfa', icon: Home, end: true },
   { to: '/app/hisseler', label: 'Hisseler', icon: LineChart },
-  { to: '/app/al-sat', label: '', icon: ArrowLeftRight, isCenter: true },
-  { to: '/app/portfoy', label: 'Portföy', icon: Wallet },
+  { to: '__trade__', label: '', icon: ArrowLeftRight, isCenter: true },
+  { to: '/app/portfoy', label: 'Portföy', icon: PieChart },
   { to: '/app/hesap', label: 'Hesap', icon: User },
 ]
 
@@ -17,6 +19,7 @@ export default function AppLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { openTrade } = useTradeModal()
   const [notifOpen, setNotifOpen] = useState(false)
   const [orders, setOrders] = useState([])
   const notifRef = useRef(null)
@@ -77,7 +80,7 @@ export default function AppLayout() {
             const Icon = t.icon
             if (t.isCenter) {
               return (
-                <button key={t.to} className="tab-center" onClick={() => navigate(t.to)}>
+                <button key={t.to} className="tab-center" onClick={() => openTrade()}>
                   <Icon size={22} color="#fff" />
                 </button>
               )
@@ -93,10 +96,12 @@ export default function AppLayout() {
         </nav>
       </div>
 
+      <TradeSheet />
+
       <style>{`
         .phone-shell {
           min-height: 100vh;
-          background: linear-gradient(180deg, #EEF3FF 0%, #F4F7FE 40%);
+          background: var(--bg-app);
           display: flex;
           justify-content: center;
           padding: 0;
@@ -122,15 +127,15 @@ export default function AppLayout() {
         }
         .icon-btn {
           width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-subtle);
-          background: #fff; display: grid; place-items: center; color: var(--text-secondary);
+          background: var(--bg-card); display: grid; place-items: center; color: var(--text-secondary);
         }
         .notif-dot {
           position: absolute; top: 6px; right: 7px; width: 7px; height: 7px; border-radius: 50%;
-          background: var(--down-red); border: 1.5px solid #fff;
+          background: var(--down-red); border: 1.5px solid var(--bg-card);
         }
         .notif-panel {
           position: absolute; top: 44px; right: 40px; width: 260px; max-height: 320px; overflow-y: auto;
-          background: #fff; border: 1px solid var(--border-subtle); border-radius: 14px;
+          background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 14px;
           box-shadow: var(--shadow-card-lg); z-index: 20;
         }
         .phone-content {
@@ -142,7 +147,7 @@ export default function AppLayout() {
           position: sticky; bottom: 0; left: 0; right: 0;
           display: grid; grid-template-columns: 1fr 1fr 64px 1fr 1fr;
           align-items: center; gap: 4px;
-          background: #fff; border-top: 1px solid var(--border-subtle);
+          background: var(--bg-card); border-top: 1px solid var(--border-subtle);
           padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
         }
         .tab-item {

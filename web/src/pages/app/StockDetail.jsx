@@ -3,10 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, TrendingUp, TrendingDown, Star } from 'lucide-react'
 import { api } from '../../lib/api'
 import { fmtMoney, fmtPct } from '../../lib/format'
+import { useTradeModal } from '../../context/TradeModalContext.jsx'
 
 export default function StockDetail() {
   const { symbol } = useParams()
   const navigate = useNavigate()
+  const { openTrade } = useTradeModal()
   const [stock, setStock] = useState(null)
   const [history, setHistory] = useState([])
   const [starred, setStarred] = useState(false)
@@ -91,10 +93,10 @@ export default function StockDetail() {
       </div>
 
       <div style={{ display: 'flex', gap: 10 }}>
-        <button className="btn btn-block btn-lg" style={{ background: 'var(--up-green)', color: '#fff' }} onClick={() => navigate(`/app/al-sat/${stock.symbol}`, { state: { side: 'buy' } })}>
+        <button className="btn btn-block btn-lg" style={{ background: 'var(--up-green)', color: '#fff' }} onClick={() => openTrade(stock.symbol, 'buy')}>
           Al
         </button>
-        <button className="btn btn-block btn-lg" style={{ background: 'var(--down-red)', color: '#fff' }} onClick={() => navigate(`/app/al-sat/${stock.symbol}`, { state: { side: 'sell' } })}>
+        <button className="btn btn-block btn-lg" style={{ background: 'var(--down-red)', color: '#fff' }} onClick={() => openTrade(stock.symbol, 'sell')}>
           Sat
         </button>
       </div>

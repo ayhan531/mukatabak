@@ -212,6 +212,13 @@ def init_db():
             created_at TEXT NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            total_value REAL NOT NULL,
+            PRIMARY KEY (user_id, date),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         CREATE TABLE IF NOT EXISTS blog_posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             slug TEXT UNIQUE NOT NULL,
@@ -312,6 +319,46 @@ def unsettled_sell_total(conn, user_id: int) -> float:
 
 def available_cash_for(conn, user_row) -> float:
     return round(user_row["cash"] - unsettled_sell_total(conn, user_row["id"]), 2)
+
+
+def record_snapshot(conn, user_id: int, total_value: float):
+    conn.execute(
+        "INSERT INTO portfolio_snapshots (user_id,date,total_value) VALUES (?,?,?) "
+        "ON CONFLICT(user_id,date) DO UPDATE SET total_value=excluded.total_value",
+        (user_id, today_str(), total_value),
+    )
+    conn.commit()
+
+
+PERFORMANCE_RANGES = {"1g": 1, "1h": 7, "1a": 30}
+
+
+def portfolio_performance(conn, user_row, current_value: float):
+    created = (user_row["created_at"] or "")[:10]
+    out = {}
+
+    def pct_since(target_date: str):
+        row = conn.execute(
+            "SELECT total_value FROM portfolio_snapshots WHERE user_id=? AND date<=? ORDER BY date DESC LIMIT 1",
+            (user_row["id"], target_date),
+        ).fetchone()
+        if row:
+            base = row["total_value"]
+        elif created and created <= target_date:
+            base = STARTING_CASH
+        else:
+            return None
+        if not base:
+            return None
+        return round(((current_value - base) / base) * 100, 2)
+
+    for key, days in PERFORMANCE_RANGES.items():
+        target = (date.today() - timedelta(days=days)).isoformat()
+        out[key] = pct_since(target)
+
+    ytd_start = date(date.today().year, 1, 1).isoformat()
+    out["ytd"] = pct_since(ytd_start)
+    return out
 
 
 # ── Sifreleme / Oturum ───────────────────────────────────────────────────
@@ -673,6 +720,8 @@ class Handler(BaseHTTPRequestHandler):
 
             if method == "GET" and route == "/portfolio":
                 return self.api_portfolio(conn)
+            if method == "GET" and route == "/portfolio/performance":
+                return self.api_portfolio_performance(conn)
             if method == "GET" and route == "/orders":
                 return self.api_orders(conn)
             if method == "POST" and route == "/trade":
@@ -771,6 +820,7 @@ class Handler(BaseHTTPRequestHandler):
         day_change = round(day_change, 2)
         day_change_pct = round((day_change / total_value) * 100, 2) if total_value > 0 else 0
         pending_settlement = unsettled_sell_total(conn, user["id"])
+        record_snapshot(conn, user["id"], total_value)
         self.send_json({
             "cash": round(user["cash"], 2),
             "available_cash": available_cash_for(conn, user),
@@ -781,6 +831,15 @@ class Handler(BaseHTTPRequestHandler):
             "day_change_pct": day_change_pct,
             "positions": enriched,
         })
+
+    def api_portfolio_performance(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        positions = conn.execute("SELECT * FROM positions WHERE user_id = ? AND qty > 0", (user["id"],)).fetchall()
+        holdings_value = sum((get_stock(p["symbol"]) or {}).get("price", 0) * p["qty"] for p in positions)
+        total_value = round(user["cash"] + holdings_value, 2)
+        self.send_json({"ranges": portfolio_performance(conn, user, total_value)})
 
     def api_orders(self, conn):
         user = self.require_user(conn)

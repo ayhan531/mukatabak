@@ -1,20 +1,31 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { TrendingUp, TrendingDown, Clock, CheckCircle2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { fmtMoney, fmtPct } from '../../lib/format'
 
 const TABS = ['Varlıklarım', 'Geçmiş', 'Emirler (T+2)']
+const TAB_FROM_QUERY = { gecmis: 'Geçmiş', emirler: 'Emirler (T+2)', varliklarim: 'Varlıklarım' }
+const RANGES = [
+  { key: '1g', label: '1G', desc: 'Son 1 Gün Getiri' },
+  { key: '1h', label: '1H', desc: 'Son 1 Hafta Getiri' },
+  { key: '1a', label: '1A', desc: 'Son 1 Ay Getiri' },
+  { key: 'ytd', label: 'YTD', desc: 'Yıl Başından Bu Yana Getiri' },
+]
 
 export default function Portfolio() {
   const [portfolio, setPortfolio] = useState(null)
   const [orders, setOrders] = useState([])
-  const [tab, setTab] = useState('Varlıklarım')
+  const [performance, setPerformance] = useState(null)
+  const [range, setRange] = useState('1a')
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState(TAB_FROM_QUERY[searchParams.get('tab')] || 'Varlıklarım')
   const navigate = useNavigate()
 
   const load = () => {
     api.portfolio().then(setPortfolio).catch(() => {})
     api.orders().then(d => setOrders(d.orders)).catch(() => {})
+    api.portfolioPerformance().then(d => setPerformance(d.ranges)).catch(() => {})
   }
 
   useEffect(() => { load() }, [])
@@ -53,7 +64,7 @@ export default function Portfolio() {
         )}
       </div>
 
-      <div style={{ display: 'flex', background: '#fff', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 4, marginBottom: 16 }}>
+      <div style={{ display: 'flex', background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 12, padding: 4, marginBottom: 16 }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)} style={{
             flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', fontWeight: 700, fontSize: 12.5,
@@ -103,6 +114,36 @@ export default function Portfolio() {
           {pendingSettle.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13.5 }}>Valör bekleyen işlemin yok.</div>}
         </div>
       )}
+
+      <div className="card" style={{ padding: 20, marginTop: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Portföy Performansı</div>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-app)', borderRadius: 10, padding: 3 }}>
+            {RANGES.map(r => (
+              <button key={r.key} onClick={() => setRange(r.key)} style={{
+                padding: '6px 10px', borderRadius: 8, border: 'none', fontSize: 11.5, fontWeight: 700,
+                background: range === r.key ? 'var(--brand-blue)' : 'transparent',
+                color: range === r.key ? '#fff' : 'var(--text-secondary)',
+              }}>{r.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {performance && performance[range] !== null && performance[range] !== undefined ? (
+          <>
+            <div style={{ fontSize: 28, fontWeight: 800, color: performance[range] >= 0 ? 'var(--up-green)' : 'var(--down-red)' }}>
+              {fmtPct(performance[range])}
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 4 }}>
+              {RANGES.find(r => r.key === range)?.desc}
+            </div>
+          </>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '8px 0' }}>
+            Bu aralık için henüz yeterli geçmiş veri birikmedi. Portföyünü birkaç gün takip ettikçe burada gerçek getiri yüzden görünecek.
+          </div>
+        )}
+      </div>
     </div>
   )
 }

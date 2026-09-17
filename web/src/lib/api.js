@@ -28,6 +28,7 @@ export const api = {
   stock: (symbol) => request(`/stocks/${symbol}`),
   stockHistory: (symbol) => request(`/stocks/${symbol}/history`),
   portfolio: () => request('/portfolio'),
+  portfolioPerformance: () => request('/portfolio/performance'),
   orders: () => request('/orders'),
   trade: (body) => request('/trade', { method: 'POST', body }),
 

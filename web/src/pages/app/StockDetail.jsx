@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, TrendingUp, TrendingDown } from 'lucide-react'
+import { ArrowLeft, TrendingUp, TrendingDown, Star } from 'lucide-react'
 import { api } from '../../lib/api'
 import { fmtMoney, fmtPct } from '../../lib/format'
 
@@ -9,13 +9,27 @@ export default function StockDetail() {
   const navigate = useNavigate()
   const [stock, setStock] = useState(null)
   const [history, setHistory] = useState([])
+  const [starred, setStarred] = useState(false)
+  const [starBusy, setStarBusy] = useState(false)
 
   useEffect(() => {
     let alive = true
     api.stock(symbol).then(d => alive && setStock(d.stock)).catch(() => {})
     api.stockHistory(symbol).then(d => alive && setHistory(d.points || [])).catch(() => {})
+    api.watchlist().then(d => alive && setStarred(d.symbols.includes(symbol.toUpperCase()))).catch(() => {})
     return () => { alive = false }
   }, [symbol])
+
+  const toggleStar = async () => {
+    setStarBusy(true)
+    try {
+      if (starred) await api.watchlistRemove(symbol)
+      else await api.watchlistAdd(symbol)
+      setStarred(s => !s)
+    } finally {
+      setStarBusy(false)
+    }
+  }
 
   if (!stock) {
     return <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-secondary)' }}>Yükleniyor…</div>
@@ -43,10 +57,13 @@ export default function StockDetail() {
       <div className="card" style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <img src={`/stocks/logo_${stock.symbol.toLowerCase()}.png`} width={44} height={44} style={{ borderRadius: 12 }} alt="" onError={e => e.currentTarget.style.visibility = 'hidden'} />
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: 18 }}>{stock.symbol}</div>
             <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{stock.name}</div>
           </div>
+          <button onClick={toggleStar} disabled={starBusy} style={{ background: 'none', border: 'none', padding: 6 }}>
+            <Star size={22} color="#F59E0B" fill={starred ? '#F59E0B' : 'none'} />
+          </button>
         </div>
 
         <div style={{ fontSize: 30, fontWeight: 800, marginBottom: 6 }}>{fmtMoney(stock.price)}</div>

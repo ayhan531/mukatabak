@@ -5,7 +5,7 @@ Kimlik dogrulama + sanal/demo hisse alim-satim + admin paneli + blog/SSS CMS sag
 Gercek para transferi, IBAN toplama veya kimlik dogrulamali para cekme YOKTUR.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, time as dtime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -33,6 +33,9 @@ DIST_DIR = ROOT / "web" / "dist"
 SECRET = os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
 STARTING_CASH = float(os.environ.get("STARTING_CASH", "100000"))
 SESSION_MAX_AGE = 60 * 60 * 24 * 30  # 30 gun
+COMMISSION_BPS = float(os.environ.get("COMMISSION_BPS", "15"))  # %0,15
+MIN_COMMISSION = float(os.environ.get("MIN_COMMISSION", "1"))
+MARKET_API_URL = "https://trrealapi-market.onrender.com/latest"
 
 STOCKS = [
     {"symbol": "THYAO", "name": "Türk Hava Yolları", "base": 295.00, "seed": 1.1},
@@ -187,9 +190,18 @@ def init_db():
             qty REAL NOT NULL,
             price REAL NOT NULL,
             total REAL NOT NULL,
+            commission REAL NOT NULL DEFAULT 0,
+            order_type TEXT NOT NULL DEFAULT 'market',
             status TEXT NOT NULL DEFAULT 'filled',
             settle_date TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS watchlist (
+            user_id INTEGER NOT NULL,
+            symbol TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, symbol),
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
         CREATE TABLE IF NOT EXISTS wallet_transactions (
@@ -224,6 +236,8 @@ def init_db():
         "ALTER TABLE users ADD COLUMN notify_price_alerts INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE users ADD COLUMN notify_news INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE orders ADD COLUMN settle_date TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE orders ADD COLUMN commission REAL NOT NULL DEFAULT 0",
+        "ALTER TABLE orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'market'",
     ):
         try:
             conn.execute(stmt)
@@ -290,7 +304,7 @@ def settle_date_for(trade_date: date) -> str:
 
 def unsettled_sell_total(conn, user_id: int) -> float:
     row = conn.execute(
-        "SELECT COALESCE(SUM(total),0) s FROM orders WHERE user_id=? AND side='sell' AND settle_date > ?",
+        "SELECT COALESCE(SUM(total - commission),0) s FROM orders WHERE user_id=? AND side='sell' AND settle_date > ?",
         (user_id, today_str()),
     ).fetchone()
     return round(row["s"], 2)
@@ -335,19 +349,75 @@ def read_session_token(token: str):
         return None
 
 
-# ── Fiyat simulasyonu ────────────────────────────────────────────────────
+# ── Gercek piyasa verisi (trrealapi-market) + yedek simulasyon ──────────
+
+_market_cache = {"ts": 0, "by_symbol": {}, "market_closed": None}
+MARKET_CACHE_TTL = 45
+
+
+def fetch_market_snapshot():
+    """trrealapi-market.onrender.com'dan gercek BIST anlik verisini ceker ve onbeller.
+    Kaynak ulasilamazsa onbellekteki (varsa eski) veriyi dondurur; hic veri yoksa bos doner."""
+    if _market_cache["by_symbol"] and time.time() - _market_cache["ts"] < MARKET_CACHE_TTL:
+        return _market_cache
+    try:
+        req = urllib.request.Request(MARKET_API_URL, headers={"User-Agent": "Mozilla/5.0 (MukatabakBot)"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            raw = resp.read(8_000_000)
+        data = json.loads(raw)
+        items = (data.get("last") or {}).get("data") or []
+        by_symbol = {}
+        market_closed = None
+        for it in items:
+            sym = (it.get("s") or "").split(":")[-1]
+            d = it.get("d") or []
+            if not sym or len(d) < 7:
+                continue
+            price, change_pct, change_abs, high, low, opn = d[1], d[2], d[3], d[4], d[5], d[6]
+            if price is None:
+                continue
+            by_symbol[sym] = {
+                "price": price, "change_pct": change_pct or 0, "change_abs": change_abs or 0,
+                "high": high, "low": low, "open": opn,
+            }
+            if market_closed is None and "isMarketClosed" in it:
+                market_closed = it["isMarketClosed"]
+        if by_symbol:
+            _market_cache["by_symbol"] = by_symbol
+            _market_cache["ts"] = time.time()
+            _market_cache["market_closed"] = market_closed
+    except Exception:
+        pass
+    return _market_cache
+
+
+def is_market_open():
+    snap = fetch_market_snapshot()
+    if snap.get("market_closed") is not None:
+        return not snap["market_closed"]
+    now = datetime.utcnow() + timedelta(hours=3)  # Europe/Istanbul (UTC+3, DST yaklasik)
+    if now.weekday() >= 5:
+        return False
+    return dtime(10, 0) <= now.time() <= dtime(18, 0)
+
 
 def live_stock(stock, at_time=None):
+    real = fetch_market_snapshot()["by_symbol"].get(stock["symbol"]) if at_time is None else None
+    if real:
+        return {
+            "symbol": stock["symbol"], "name": stock["name"],
+            "price": round(real["price"], 2), "change_pct": round(real["change_pct"], 2),
+            "high": round(real["high"], 2) if real.get("high") is not None else None,
+            "low": round(real["low"], 2) if real.get("low") is not None else None,
+            "open": round(real["open"], 2) if real.get("open") is not None else None,
+            "source": "live",
+        }
+    # Yedek: gercek veri kaynagina ulasilamadiginda dalgali simulasyon
     t = (at_time if at_time is not None else time.time()) / 60.0
     wave = math.sin(t * 0.11 + stock["seed"]) * 0.009 + math.sin(t * 0.033 + stock["seed"] * 2) * 0.004
     price = round(stock["base"] * (1 + wave), 2)
     change_pct = round(wave * 100, 2)
-    return {
-        "symbol": stock["symbol"],
-        "name": stock["name"],
-        "price": price,
-        "change_pct": change_pct,
-    }
+    return {"symbol": stock["symbol"], "name": stock["name"], "price": price, "change_pct": change_pct, "source": "simulated"}
 
 
 def find_stock(symbol):
@@ -367,6 +437,15 @@ def all_stocks():
 
 
 def stock_history(stock, points=24, step_minutes=5):
+    live = live_stock(stock)
+    if live.get("source") == "live" and None not in (live.get("open"), live.get("low"), live.get("high")):
+        # Gercek gun ici degerlerden (acilis/dusuk/yuksek/guncel) olusan, uydurma ara nokta icermeyen seri.
+        up_day = live["price"] >= live["open"]
+        order = [("Açılış", live["open"]), ("Düşük", live["low"]), ("Yüksek", live["high"]), ("Güncel", live["price"])]
+        if not up_day:
+            order = [("Açılış", live["open"]), ("Yüksek", live["high"]), ("Düşük", live["low"]), ("Güncel", live["price"])]
+        return [{"t": label, "price": round(p, 2)} for label, p in order]
+
     now_ts = time.time()
     series = []
     for i in range(points, -1, -1):
@@ -374,6 +453,47 @@ def stock_history(stock, points=24, step_minutes=5):
         snap = live_stock(stock, at_time=ts)
         series.append({"t": time.strftime("%H:%M", time.localtime(ts)), "price": snap["price"]})
     return series
+
+
+def fetch_market_indices():
+    by = fetch_market_snapshot()["by_symbol"]
+    xau_usd = by.get("XAUUSD1!")
+    usdtry = by.get("USDTRY1!")
+    eurtry = by.get("EURTRY1!")
+    xu100 = by.get("XU100")
+
+    indices = []
+    if xau_usd:
+        indices.append({
+            "key": "ons_altin", "label": "Ons Altın", "prefix": "$",
+            "price": round(xau_usd["price"], 2), "change_pct": round(xau_usd["change_pct"], 2),
+        })
+    if xau_usd and usdtry:
+        gram = xau_usd["price"] * usdtry["price"] / 31.1034768
+        indices.append({
+            "key": "gram_altin", "label": "Gram Altın", "prefix": "₺",
+            "price": round(gram, 2), "change_pct": round(xau_usd["change_pct"], 2),
+        })
+    if xu100:
+        indices.append({
+            "key": "bist100", "label": "BIST 100", "prefix": "",
+            "price": round(xu100["price"], 2), "change_pct": round(xu100["change_pct"], 2),
+        })
+    if usdtry:
+        indices.append({
+            "key": "usdtry", "label": "USD/TRY", "prefix": "₺",
+            "price": round(usdtry["price"], 4), "change_pct": round(usdtry["change_pct"], 2),
+        })
+    if eurtry:
+        indices.append({
+            "key": "eurtry", "label": "EUR/TRY", "prefix": "₺",
+            "price": round(eurtry["price"], 4), "change_pct": round(eurtry["change_pct"], 2),
+        })
+    return indices
+
+
+def commission_for(total):
+    return round(max(MIN_COMMISSION, total * COMMISSION_BPS / 10000), 2)
 
 
 # ── HTTP Handler ─────────────────────────────────────────────────────────
@@ -523,8 +643,20 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Hisse bulunamadı."}, 404)
                 return self.send_json({"points": stock_history(raw)})
 
+            if method == "GET" and route == "/market/indices":
+                return self.send_json({"items": fetch_market_indices()})
+            if method == "GET" and route == "/market/status":
+                return self.send_json({"open": is_market_open()})
+
             if method == "GET" and route == "/news":
                 return self.send_json({"items": fetch_news(), "live": bool(_news_cache["items"])})
+
+            if method == "GET" and route == "/watchlist":
+                return self.api_watchlist_list(conn)
+            if method == "POST" and route == "/watchlist":
+                return self.api_watchlist_add(conn)
+            if method == "DELETE" and len(parts) == 2 and parts[0] == "watchlist":
+                return self.api_watchlist_remove(conn, parts[1])
 
             if method == "GET" and route == "/blog":
                 rows = conn.execute("SELECT * FROM blog_posts ORDER BY date DESC").fetchall()
@@ -660,7 +792,8 @@ class Handler(BaseHTTPRequestHandler):
         today = today_str()
         orders = [{
             "id": r["id"], "symbol": r["symbol"], "side": r["side"], "qty": r["qty"],
-            "price": r["price"], "total": r["total"], "status": r["status"], "date": r["created_at"],
+            "price": r["price"], "total": r["total"], "commission": r["commission"], "order_type": r["order_type"],
+            "status": r["status"], "date": r["created_at"],
             "settle_date": r["settle_date"], "settled": bool(r["settle_date"]) and r["settle_date"] <= today,
         } for r in rows]
         self.send_json({"orders": orders})
@@ -672,6 +805,9 @@ class Handler(BaseHTTPRequestHandler):
         body = self.read_json()
         symbol = (body.get("symbol") or "").upper()
         side = body.get("side")
+        order_type = body.get("order_type") or "market"
+        if order_type not in ("market", "limit"):
+            return self.send_json({"error": "Geçersiz emir tipi."}, 400)
         try:
             qty = float(body.get("qty") or 0)
         except (TypeError, ValueError):
@@ -682,16 +818,35 @@ class Handler(BaseHTTPRequestHandler):
         if not stock:
             return self.send_json({"error": "Hisse bulunamadı."}, 404)
 
-        total = round(stock["price"] * qty, 2)
+        market_open = is_market_open()
+        if order_type == "market" and not market_open:
+            return self.send_json({"error": "Piyasa şu anda kapalı, sadece limit emir girebilirsin."}, 400)
+
+        fill_price = stock["price"]
+        if order_type == "limit":
+            try:
+                limit_price = float(body.get("limit_price") or 0)
+            except (TypeError, ValueError):
+                limit_price = 0
+            if limit_price <= 0:
+                return self.send_json({"error": "Geçerli bir limit fiyat girmelisin."}, 400)
+            if side == "buy" and limit_price < stock["price"]:
+                return self.send_json({"error": f"Piyasa fiyatı ({stock['price']:.2f} TL) limit fiyatından yüksek, emir gerçekleşmedi."}, 400)
+            if side == "sell" and limit_price > stock["price"]:
+                return self.send_json({"error": f"Piyasa fiyatı ({stock['price']:.2f} TL) limit fiyatından düşük, emir gerçekleşmedi."}, 400)
+            fill_price = stock["price"]  # emir tetiklendiginde gercek piyasa fiyatindan doldurulur
+
+        total = round(fill_price * qty, 2)
+        commission = commission_for(total)
         trade_date = date.today()
         settle = settle_date_for(trade_date)
 
         if side == "buy":
             available = available_cash_for(conn, user)
-            if available < total:
-                return self.send_json({"error": f"Yetersiz kullanılabilir bakiye. Kullanılabilir: {available:.2f} TL"}, 400)
-            new_cash = user["cash"] - total
-            conn.execute("UPDATE users SET cash = ? WHERE id = ?", (new_cash, user["id"]))
+            cost = total + commission
+            if available < cost:
+                return self.send_json({"error": f"Yetersiz kullanılabilir bakiye. Gerekli: {cost:.2f} TL, kullanılabilir: {available:.2f} TL"}, 400)
+            conn.execute("UPDATE users SET cash = cash - ? WHERE id = ?", (cost, user["id"]))
             existing = conn.execute("SELECT qty FROM positions WHERE user_id=? AND symbol=?", (user["id"], symbol)).fetchone()
             if existing:
                 conn.execute("UPDATE positions SET qty = qty + ? WHERE user_id=? AND symbol=?", (qty, user["id"], symbol))
@@ -701,15 +856,49 @@ class Handler(BaseHTTPRequestHandler):
             existing = conn.execute("SELECT qty FROM positions WHERE user_id=? AND symbol=?", (user["id"], symbol)).fetchone()
             if not existing or existing["qty"] < qty:
                 return self.send_json({"error": "Yeterli adette hissen yok."}, 400)
+            proceeds = total - commission
             conn.execute("UPDATE positions SET qty = qty - ? WHERE user_id=? AND symbol=?", (qty, user["id"], symbol))
-            conn.execute("UPDATE users SET cash = cash + ? WHERE id = ?", (total, user["id"]))
+            conn.execute("UPDATE users SET cash = cash + ? WHERE id = ?", (proceeds, user["id"]))
 
         conn.execute(
-            "INSERT INTO orders (user_id,symbol,side,qty,price,total,status,settle_date,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (user["id"], symbol, side, qty, stock["price"], total, "filled", settle, now()),
+            "INSERT INTO orders (user_id,symbol,side,qty,price,total,commission,order_type,status,settle_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (user["id"], symbol, side, qty, fill_price, total, commission, order_type, "filled", settle, now()),
         )
         conn.commit()
-        self.send_json({"ok": True, "settle_date": settle})
+        self.send_json({"ok": True, "settle_date": settle, "commission": commission, "fill_price": fill_price, "market_open": market_open})
+
+    # -- takip listem --
+    def api_watchlist_list(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        rows = conn.execute("SELECT symbol FROM watchlist WHERE user_id=? ORDER BY created_at ASC", (user["id"],)).fetchall()
+        symbols = [r["symbol"] for r in rows]
+        stocks = [get_stock(s) for s in symbols if get_stock(s)]
+        self.send_json({"symbols": symbols, "stocks": stocks})
+
+    def api_watchlist_add(self, conn):
+        user = self.require_user(conn)
+        if not user:
+            return
+        body = self.read_json()
+        symbol = (body.get("symbol") or "").upper()
+        if not find_stock(symbol):
+            return self.send_json({"error": "Hisse bulunamadı."}, 404)
+        conn.execute(
+            "INSERT OR IGNORE INTO watchlist (user_id,symbol,created_at) VALUES (?,?,?)",
+            (user["id"], symbol, now()),
+        )
+        conn.commit()
+        self.send_json({"ok": True})
+
+    def api_watchlist_remove(self, conn, symbol):
+        user = self.require_user(conn)
+        if not user:
+            return
+        conn.execute("DELETE FROM watchlist WHERE user_id=? AND symbol=?", (user["id"], symbol.upper()))
+        conn.commit()
+        self.send_json({"ok": True})
 
     # -- cuzdan (demo sanal bakiye) --
     def api_wallet_transactions(self, conn):

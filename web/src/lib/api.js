@@ -31,6 +31,13 @@ export const api = {
   orders: () => request('/orders'),
   trade: (body) => request('/trade', { method: 'POST', body }),
 
+  marketIndices: () => request('/market/indices'),
+  marketStatus: () => request('/market/status'),
+
+  watchlist: () => request('/watchlist'),
+  watchlistAdd: (symbol) => request('/watchlist', { method: 'POST', body: { symbol } }),
+  watchlistRemove: (symbol) => request(`/watchlist/${symbol}`, { method: 'DELETE' }),
+
   news: () => request('/news'),
 
   walletTransactions: () => request('/wallet/transactions'),

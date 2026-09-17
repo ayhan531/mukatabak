@@ -45,7 +45,12 @@ export default function Landing() {
     api.stocks().then(d => { if (d?.stocks?.length) setStocks(d.stocks) }).catch(() => {})
   }, [])
 
-  const gainers = [...stocks].sort((a, b) => b.change_pct - a.change_pct).slice(0, 4)
+  const realGainers = [...stocks].filter(s => s.change_pct >= 0).sort((a, b) => b.change_pct - a.change_pct)
+  const hasGainers = realGainers.length > 0
+  const gainers = hasGainers
+    ? realGainers.slice(0, 4)
+    : [...stocks].sort((a, b) => b.change_pct - a.change_pct).slice(0, 4)
+  const heroLabel = hasGainers ? 'En Çok Yükselenler' : 'Piyasa Özeti'
   const tickerStocks = [...stocks, ...stocks]
 
   const [statsRef, statsVisible] = useReveal()
@@ -87,8 +92,8 @@ export default function Landing() {
           <div style={{ position: 'relative' }}>
             <div className="card" style={{ padding: 22, background: 'var(--bg-card-gradient)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>En Çok Yükselenler</div>
-                <span className="pill pill-up">{gainers.length} pay</span>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{heroLabel}</div>
+                <span className={`pill ${hasGainers ? 'pill-up' : 'pill-down'}`}>{gainers.length} pay</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {gainers.map(st => (

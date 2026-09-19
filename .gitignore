@@ -2,9 +2,13 @@ node_modules/
 data/
 *.log
 .DS_Store
-apk-extract/
-Mukatabak-2.5.1.apk
-görseller/
 __pycache__/
 *.pyc
+
+# yerel çalışma dosyaları (depoya girmez)
+_old/
+_sync.tgz
+mk-audit/
+fixtures/
+görseller/
 geliştirilmesi gerekenler.txt

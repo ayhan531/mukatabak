@@ -1,1 +1,1 @@
-# Backend sadece Python standart kütüphanesini kullanır, harici bağımlılık yoktur.
+# Mukatabak backend yalnızca Python standart kütüphanesini kullanır; harici bağımlılık yoktur.

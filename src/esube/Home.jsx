@@ -31,12 +31,16 @@ export function InstrumentRow({ item, onClick }) {
 /* ---------- üstteki yatay piyasa şeridi ---------- */
 
 const TILES = [
-  { code: "XAUUSD", label: "Ons Altın", tone: "g" },
-  { code: "GRAMALTIN", label: "Gram Altın", tone: "g" },
-  { code: "XU100", label: "BIST 100", tone: "" },
-  { code: "XU030", label: "BIST 30", tone: "" },
-  { code: "USDTRY", label: "Dolar", tone: "b" },
-  { code: "EURTRY", label: "Euro", tone: "b" },
+  { code: "XAUUSD", label: "Ons Altın", tone: "g", icon: "wallet" },
+  { code: "XAUTRY", label: "Gram Altın", tone: "g", icon: "wallet" },
+  { code: "XU100", label: "BIST 100", tone: "", icon: "bars" },
+  { code: "XU030", label: "BIST 30", tone: "", icon: "bars" },
+  { code: "XBANK", label: "BIST Banka", tone: "", icon: "bank" },
+  { code: "USDTRY", label: "Dolar", tone: "b", icon: "trend" },
+  { code: "EURTRY", label: "Euro", tone: "b", icon: "trend" },
+  { code: "XAGTRY", label: "Gram Gümüş", tone: "g", icon: "wallet" },
+  { code: "BRENT", label: "Brent", tone: "b", icon: "trend" },
+  { code: "BTCUSD", label: "Bitcoin", tone: "g", icon: "percent" },
 ];
 
 export function MarketStrip({ instruments }) {
@@ -45,12 +49,12 @@ export function MarketStrip({ instruments }) {
   if (!tiles.length) return null;
   return (
     <div className="mk-strip">
-      {tiles.map(({ code, label, tone, item }) => {
+      {tiles.map(({ code, label, tone, icon, item }) => {
         const up = Number(item.change) >= 0;
         return (
           <div className="mk-tile" key={code}>
             <span className="top">
-              <i className={tone}><Icon name={tone === "g" ? "wallet" : tone === "b" ? "trend" : "bars"} size={14} /></i>
+              <i className={tone}><Icon name={icon} size={14} /></i>
               <span>{T(label)}</span>
             </span>
             <b>{Number(item.price).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b>
@@ -80,6 +84,14 @@ const ago = (value) => {
   return `${days} ${T("gün önce")}`;
 };
 
+/** "Borsa İstanbul · Başlık" gibi kaynak ön eklerini temizler (APK'da başlık yalın görünür). */
+const cleanTitle = (title = "") => {
+  const text = String(title).trim();
+  const cut = text.split(/\s[·|–-]\s/);
+  if (cut.length > 1 && cut[0].length <= 24) return cut.slice(1).join(" · ").trim();
+  return text;
+};
+
 export function NewsRow({ item, index, onOpen }) {
   return (
     <button className="mk-news" onClick={() => onOpen?.(item)}>
@@ -87,7 +99,7 @@ export function NewsRow({ item, index, onOpen }) {
         {item.image_url ? <img src={item.image_url} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Icon name="news" size={26} />}
       </span>
       <span>
-        <b>{item.title}</b>
+        <b>{cleanTitle(item.title)}</b>
         <span><Icon name="clock" size={13} />{ago(item.published_at || item.time || item.published)}</span>
       </span>
     </button>

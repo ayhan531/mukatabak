@@ -222,7 +222,7 @@ export default function Portfolio({
           <span className="value">{mask(money(total))}</span>
           <span className="line">
             <span className={`mk-badge ${dayProfit >= 0 ? "up" : "down"}`}>
-              {dayProfit >= 0 ? "▲" : "▼"} {mask(signed(dayProfit))} ({pctText(dayRatio)})
+              {dayProfit >= 0 ? "▲" : "▼"} {hidden ? "•••" : (dayProfit >= 0 ? "+" : "−") + tr2(Math.abs(dayProfit))} ({pctText(dayRatio)})
             </span>
             <span className="hint">{T("Günlük Değişim")}</span>
           </span>

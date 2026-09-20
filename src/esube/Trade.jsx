@@ -325,7 +325,7 @@ export function ReviewOrder({ order, onCancel, onConfirmed }) {
         <Row label={T("İşlem")} value={T(isIpo ? "Talep" : buy ? "Alış" : "Satış")} tone={buy ? "var(--green)" : "var(--red)"} />
         <Row label={T(isFund ? "Fon" : "Hisse")} value={stock.symbol} />
         <Row label={T(isFund ? "Fon fiyatı" : isIpo ? "Arz fiyatı" : "Fiyat")} value={money(price)} />
-        <Row label={T(isFund ? "Pay" : isIpo ? "Talep lotu" : "Adet")} value={`${quantity} ${T(isFund ? "pay" : "lot")}`} />
+        <Row label={T(isFund ? "Pay" : isIpo ? "Talep adedi" : "Adet")} value={`${Number(quantity).toLocaleString("tr-TR")} ${T(isFund ? "pay" : "adet")}`} />
         <div className="hline" />
         <Row label={T(isIpo ? "Toplam talep" : "Toplam")} value={money(quantity * price)} strong />
         {error && <div className="trade-error">{error}</div>}

@@ -140,7 +140,7 @@ export const toInstrument = (quote) => {
     change: changePct,
     dayDelta: price - previous,
     volume: Number(quote.volume || 0),
-    logo: quote.logo_url || "",
+    logo: quote.logo_url ? `/api/logo/${encodeURIComponent(symbol)}` : "",
     assetClass: quote.asset_class || "stock",
     currency: isFx ? "TRY" : quote.asset_class === "index" ? "" : "TRY",
     kind: quote.asset_class === "fund" ? "fund" : quote.asset_class === "fx" ? "currency" : "stock",
@@ -228,6 +228,18 @@ const SHORT_NAMES = {
   TCELL: "Turkcell", TTKOM: "Türk Telekom", PETKM: "Petkim", ENKAI: "Enka İnşaat",
   VAKBN: "VakıfBank", HALKB: "Halkbank", ARCLK: "Arçelik", MGROS: "Migros",
   KOZAL: "Koza Altın", ASTOR: "Astor Enerji", ALARK: "Alarko Holding", TAVHL: "TAV Havalimanları",
+  KRDMB: "Kardemir", KRDMA: "Kardemir", DMRGD: "Demirağ Gıda", LMKDC: "Limak Doğu Çimento",
+  MAVI: "Mavi Giyim", TKFEN: "Tekfen Holding", AZTEK: "Aztek Teknoloji", SMRVA: "Sümer Varlık",
+  DAGI: "Dagi Giyim", GLRMK: "Gülermak", ODAS: "Odaş Elektrik", SOKM: "ŞOK Marketler",
+  AKSEN: "Aksa Enerji", AKSA: "Aksa Akrilik", BRSAN: "Borusan Mannesmann", CIMSA: "Çimsa",
+  DOAS: "Doğuş Otomotiv", ECILC: "EİS Eczacıbaşı", EGEEN: "Ege Endüstri", ENJSA: "Enerjisa",
+  ISDMR: "İskenderun Demir", IZENR: "İzdemir Enerji", KONTR: "Kontrolmatik", KONYA: "Konya Çimento",
+  KORDS: "Kordsa", MPARK: "MLP Sağlık", OTKAR: "Otokar", PGSUS: "Pegasus", PRKME: "Park Elektrik",
+  SKBNK: "Şekerbank", TSKB: "TSKB", TUKAS: "Tukaş", TURSG: "Türkiye Sigorta", VESBE: "Vestel Beyaz",
+  VESTL: "Vestel", YEOTK: "Yeo Teknoloji", ZOREN: "Zorlu Enerji", AGHOL: "AG Anadolu",
+  AEFES: "Anadolu Efes", ANSGR: "Anadolu Sigorta", AYGAZ: "Aygaz", BRISA: "Brisa",
+  GUBRF: "Gübretaş", HALKB: "Halkbank", ISMEN: "İş Yatırım", KCAER: "Kocaer Çelik",
+  SASA: "Sasa Polyester", SISE: "Şişecam", SAHOL: "Sabancı Holding", TTRAK: "Türk Traktör",
   DOHOL: "Doğan Holding", AEFES: "Anadolu Efes", CCOLA: "Coca-Cola İçecek", ULKER: "Ülker",
   SOKM: "ŞOK Marketler", TTRAK: "Türk Traktör", OYAKC: "Oyak Çimento", GUBRF: "Gübretaş",
   HEKTS: "Hektaş", KRDMD: "Kardemir", EKGYO: "Emlak Konut", KONTR: "Kontrolmatik",
@@ -241,9 +253,9 @@ export const shortName = (code, name = "") => {
   if (!raw) return code || "";
   const cut = raw.split("-")[0].split("/")[0].replace(LEGAL, "").trim();
   const base = (cut || raw).toLocaleLowerCase("tr-TR");
-  const pretty = base
-    .split(/\s+/)
-    .slice(0, 3)
+  const words = base.split(/\s+/).filter(Boolean);
+  const take = words.slice(0, words.join(" ").length > 20 ? 2 : 3);
+  const pretty = take
     .map((word) => word.charAt(0).toLocaleUpperCase("tr-TR") + word.slice(1))
     .join(" ");
   return pretty || raw;

@@ -8,7 +8,7 @@ import CorporateLanding from "./CorporateLanding";
 import Esube from "./esube/App.jsx";
 import { AuthScreen } from "./legacy.jsx";
 import AdminConsole from "./AdminConsole.jsx";
-import { api } from "./esube/store.js";
+import { api, onSessionLost, resetSessionGuard } from "./esube/store.js";
 import { hasPendingTc } from "./esube/accounts.js";
 import { trackSafeArea } from "./esube/safearea.js";
 import { trackInstall, registerWorker, isStandalone, refreshPush } from "./esube/pwa.js";
@@ -24,10 +24,23 @@ function Root() {
   const [adminData, setAdminData] = useState(null);
 
   const loadMe = useCallback(async () => {
-    try { setMe(normalize(await api("/api/me"))); } catch { setMe(null); } finally { setReady(true); }
+    try {
+      const data = await api("/api/me");
+      const user = normalize(data);
+      if (user) resetSessionGuard();
+      setMe(user);
+    } catch { setMe(null); } finally { setReady(true); }
   }, []);
 
   useEffect(() => { loadMe(); }, [loadMe]);
+
+  // Oturum sunucu tarafında düşerse ekranlar boş veri yerine giriş ekranına döner.
+  useEffect(() => onSessionLost(() => {
+    setMe(null);
+    setAdminData(null);
+    setShowAdmin(false);
+    setAuthOpen(true);
+  }), []);
 
   // Giriş yapıldıysa ve bildirim izni zaten verilmişse aboneliği tazele.
   useEffect(() => { if (me) refreshPush(); }, [me]);

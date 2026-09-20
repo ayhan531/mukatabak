@@ -30,6 +30,20 @@ export function usePref(name, fallback) {
   return [value, set];
 }
 
+/**
+ * Oturum düştüğünde (401) uygulamanın sessizce hata döngüsüne girmemesi için
+ * tek seferlik bir olay yayınlanır; kabuk bunu yakalayıp giriş ekranına döner.
+ */
+const SESSION_EVENT = "mukatabak:oturum-bitti";
+let sessionLost = false;
+
+export const onSessionLost = (handler) => {
+  window.addEventListener(SESSION_EVENT, handler);
+  return () => window.removeEventListener(SESSION_EVENT, handler);
+};
+
+export const resetSessionGuard = () => { sessionLost = false; };
+
 export const api = async (path, options = {}) => {
   const isForm = options.body instanceof FormData;
   const response = await fetch(path, {
@@ -40,6 +54,13 @@ export const api = async (path, options = {}) => {
   const text = await response.text();
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
+  if (response.status === 401 && !String(path).startsWith("/api/me") && !String(path).startsWith("/api/login")) {
+    if (!sessionLost) {
+      sessionLost = true;
+      window.dispatchEvent(new CustomEvent(SESSION_EVENT));
+    }
+    throw new Error(data.error || "Oturumun sona erdi");
+  }
   if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
   return data;
 };

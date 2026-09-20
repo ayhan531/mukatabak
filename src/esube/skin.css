@@ -900,3 +900,114 @@ body.esube-open { background: var(--bg5); }
 .mk-card-head h2 { font-size: calc(17px * var(--s)); }
 .mk-range { padding: 3px; }
 .mk-range button { padding: 6px 10px; font-size: calc(12px * var(--s)); }
+
+/* ============================================================
+   Hisse detayı, haberler, varlık dağılımı ve iskelet yüklemeler
+   ============================================================ */
+
+/* ---- iskelet (skeleton) ---- */
+.sk {
+  display: block; border-radius: 8px;
+  background: linear-gradient(100deg, rgba(27,37,89,.06) 30%, rgba(27,37,89,.12) 50%, rgba(27,37,89,.06) 70%);
+  background-size: 260% 100%;
+  animation: sk-slide 1.3s linear infinite;
+}
+[data-theme="dark"] .sk {
+  background: linear-gradient(100deg, rgba(255,255,255,.05) 30%, rgba(255,255,255,.11) 50%, rgba(255,255,255,.05) 70%);
+  background-size: 260% 100%;
+}
+@keyframes sk-slide { from { background-position: 160% 0; } to { background-position: -60% 0; } }
+.sk-line { height: 11px; margin: 5px 0; width: 100%; }
+.sk-line.short { width: 60%; }
+.sk-avatar { width: 40px; height: 40px; border-radius: 50%; }
+.sk-thumb { width: 62px; height: 62px; border-radius: 15px; }
+.sk-chart { height: 190px; border-radius: 14px; margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+/* ---- "Tümü" bağlantısı ---- */
+.mk-all { font-size: calc(13.5px * var(--s)); font-weight: 700; color: var(--accent); }
+
+/* ---- hisse detay ---- */
+.sd-page { padding-bottom: calc(var(--nav-h) + 96px); }
+.sd-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.sd-head b { display: block; font-size: calc(19px * var(--s)); font-weight: 700; letter-spacing: -.3px; }
+.sd-head s { display: block; text-decoration: none; font-size: calc(12.5px * var(--s)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sd-price { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sd-price strong { font-size: calc(32px * var(--s)); font-weight: 700; letter-spacing: -.8px; }
+
+.sd-chart { position: relative; margin-top: 12px; color: var(--ink); }
+.sd-chart svg { width: 100%; height: 190px; display: block; touch-action: pan-y; }
+.sd-chart-tip { display: flex; align-items: baseline; gap: 10px; }
+.sd-chart-tip strong { font-size: calc(16px * var(--s)); font-weight: 700; }
+.sd-chart-tip span { font-size: calc(12px * var(--s)); color: var(--muted); }
+.sd-chart-empty { padding: 44px 10px; text-align: center; color: var(--muted); font-size: calc(13.5px * var(--s)); }
+
+.sd-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sd-stat {
+  background: rgba(255, 255, 255, .62); border-radius: 14px; padding: 12px 14px; display: grid; gap: 4px;
+}
+[data-theme="dark"] .sd-stat { background: rgba(255, 255, 255, .05); }
+.sd-stat span { font-size: calc(12px * var(--s)); color: var(--muted); }
+.sd-stat strong { font-size: calc(15px * var(--s)); font-weight: 700; color: var(--ink); }
+
+.sd-about { font-size: calc(14.5px * var(--s)); color: var(--ink-2, var(--muted)); line-height: 1.7; }
+.sd-risk {
+  margin-top: 12px; padding: 12px 14px; border-radius: 13px;
+  background: var(--tint-orange); color: var(--ink-orange);
+  font-size: calc(13px * var(--s)); font-weight: 500;
+}
+.sd-note { font-size: calc(12.5px * var(--s)); color: var(--muted); padding-top: 12px; }
+
+.sd-source {
+  display: grid; grid-template-columns: 44px 1fr 16px; gap: 13px; align-items: center;
+  padding: 13px 0; width: 100%; text-align: left;
+}
+.sd-source b { display: block; font-size: calc(15px * var(--s)); font-weight: 600; color: var(--ink); }
+.sd-source s { display: block; text-decoration: none; font-size: calc(12.5px * var(--s)); color: var(--muted); margin-top: 2px; }
+
+.sd-actions {
+  position: fixed; left: 12px; right: 12px;
+  bottom: calc(var(--nav-h) + 20px + env(safe-area-inset-bottom, 0px));
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; z-index: 5;
+}
+.sd-actions .mk-send { height: 54px; font-size: calc(16px * var(--s)); }
+@media (min-width: 761px) {
+  .sd-actions { position: static; max-width: 420px; margin-top: 8px; }
+  .sd-page { padding-bottom: 24px; }
+}
+
+/* ---- haberler sekmeleri ---- */
+.news-tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; padding-bottom: 2px; }
+.news-tabs::-webkit-scrollbar { display: none; }
+.news-tabs button { flex: none; }
+.article-photo { border-radius: 16px; overflow: hidden; margin-bottom: 14px; }
+.article-photo img { width: 100%; display: block; }
+.article-body { font-size: calc(15px * var(--s)); line-height: 1.75; color: var(--ink); white-space: pre-line; }
+
+/* ---- varlık dağılımı ---- */
+.mk-split { display: grid; grid-template-columns: 116px 1fr; gap: 18px; align-items: center; }
+.mk-legend { display: grid; gap: 9px; min-width: 0; }
+.mk-legend > div { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 9px; align-items: center; }
+.mk-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.mk-legend span { font-size: calc(13.5px * var(--s)); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mk-legend b { font-size: calc(13px * var(--s)); font-weight: 700; color: var(--ink); white-space: nowrap; }
+.mk-legend em { font-style: normal; font-size: calc(12px * var(--s)); color: var(--muted); white-space: nowrap; min-width: 38px; text-align: right; }
+@media (max-width: 380px) {
+  .mk-split { grid-template-columns: 96px 1fr; gap: 12px; }
+  .mk-legend b { display: none; }
+}
+
+.sd-source, .sd-source b, .sd-source s { text-decoration: none; }
+.sd-source b { color: var(--ink); }
+
+.mk-news span span { white-space: nowrap; }
+.mk-news > span { min-width: 0; }
+
+/* çıkış düğmesi pastel zeminde kaybolmasın */
+.mk-logout {
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(229, 72, 77, .22);
+  box-shadow: 0 8px 18px rgba(229, 72, 77, .08);
+}
+[data-theme="dark"] .mk-logout { background: rgba(255, 255, 255, .06); border-color: rgba(255, 107, 107, .3); }
+.mk-btn.ghost { border: 1px solid var(--edge); box-shadow: 0 8px 18px rgba(46, 62, 128, .07); }

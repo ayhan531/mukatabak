@@ -46,7 +46,20 @@ const TILES = [
 export function MarketStrip({ instruments }) {
   const byCode = useMemo(() => new Map(instruments.map((item) => [item.code, item])), [instruments]);
   const tiles = TILES.map((tile) => ({ ...tile, item: byCode.get(tile.code) })).filter((tile) => tile.item);
-  if (!tiles.length) return null;
+  if (!tiles.length) {
+    return (
+      <div className="mk-strip">
+        {[0, 1, 2].map((key) => (
+          <div className="mk-tile" key={key}>
+            <span className="sk sk-line short" style={{ width: "58%" }} />
+            <span className="sk sk-line" style={{ width: "72%", height: 20 }} />
+            <span className="sk sk-line short" style={{ width: "50%" }} />
+            <span className="sk" style={{ height: 34, borderRadius: 8 }} />
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="mk-strip">
       {tiles.map(({ code, label, tone, icon, item }) => {
@@ -108,8 +121,18 @@ export function NewsRow({ item, index, onOpen }) {
 
 /* ---------- ekran ---------- */
 
+/** Veri gelene kadar gösterilen iskelet satırlar. */
+const RowSkeleton = () => (
+  <div className="inst-row" style={{ pointerEvents: "none" }}>
+    <span className="sk sk-avatar" />
+    <span className="inst-copy"><span className="sk sk-line" style={{ width: "42%" }} /><span className="sk sk-line short" style={{ width: "62%" }} /></span>
+    <span className="inst-price"><span className="sk sk-line" style={{ width: 62 }} /><span className="sk sk-line short" style={{ width: 46 }} /></span>
+    <span className="inst-trail" />
+  </div>
+);
+
 export default function Home({
-  brandBar, instruments, state, watchlist, openTrade, news, newsState, onOpenNews,
+  brandBar, instruments, state, watchlist, openTrade, news, newsState, onOpenNews, onAllNews,
 }) {
   const [query, setQuery] = useState("");
   const stocks = useMemo(() => listFor(BIST, instruments), [instruments]);
@@ -131,7 +154,7 @@ export default function Home({
         <section className="mk-card">
           <div className="mk-card-head">
             <h2>{T("Sonuçlar")}</h2>
-            <span className="count">{results.length} {T("pay")}</span>
+            <span className="count">{results.length} {T("hisse")}</span>
           </div>
           {results.length ? (
             results.map((item, index) => (
@@ -155,7 +178,9 @@ export default function Home({
               <span className="mk-chip-ico star">★</span>
               <h2>{T("Takip Listem")}</h2>
             </div>
-            {watched.length ? (
+            {state !== "live" && !watched.length ? (
+              <><RowSkeleton /><div className="hline" /><RowSkeleton /><div className="hline" /><RowSkeleton /></>
+            ) : watched.length ? (
               watched.map((item, index) => (
                 <React.Fragment key={item.code}>
                   {index > 0 && <div className="hline" />}
@@ -174,9 +199,13 @@ export default function Home({
           <section className="mk-card">
             <div className="mk-card-head">
               <h2>{T("Piyasalardan Son Haberler")}</h2>
+              {onAllNews && <button className="mk-all" onClick={onAllNews}>{T("Tümü")}</button>}
             </div>
-            {news?.length ? (
-              news.slice(0, 8).map((item, index) => (
+            {newsState !== "live" && !news?.length ? (
+              <><div className="mk-news"><span className="sk sk-thumb" /><span><span className="sk sk-line" /><span className="sk sk-line short" /></span></div>
+                <div className="mk-news"><span className="sk sk-thumb" /><span><span className="sk sk-line" /><span className="sk sk-line short" /></span></div></>
+            ) : news?.length ? (
+              news.slice(0, 6).map((item, index) => (
                 <NewsRow key={item.id || item.link || index} item={item} index={index} onOpen={onOpenNews} />
               ))
             ) : (

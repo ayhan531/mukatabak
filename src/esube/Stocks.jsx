@@ -11,7 +11,7 @@ const Group = ({ tone, title, items, openTrade }) => (
     <div className="mk-card-head">
       <span className={`mk-chip-ico ${tone}`}>{tone === "up" ? "↑" : "↓"}</span>
       <h2>{title}</h2>
-      <span className="count">{items.length} {T("pay")}</span>
+      <span className="count">{items.length} {T("hisse")}</span>
     </div>
     {items.length ? (
       items.map((item, index) => (
@@ -53,7 +53,7 @@ export default function Stocks({ instruments, state, unread, onNotifications, op
         <section className="mk-card">
           <div className="mk-card-head">
             <h2>{T("Sonuçlar")}</h2>
-            <span className="count">{results.length} {T("pay")}</span>
+            <span className="count">{results.length} {T("hisse")}</span>
           </div>
           {results.length ? (
             results.map((item, index) => (

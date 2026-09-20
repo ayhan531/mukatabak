@@ -12,3 +12,8 @@ mk-audit/
 fixtures/
 görseller/
 geliştirilmesi gerekenler.txt
+
+# gelistirme araclari
+shots/
+_sync.bundle
+*.patch

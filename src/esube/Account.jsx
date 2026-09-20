@@ -20,7 +20,7 @@ const Row = ({ tile, icon, title, subtitle, onClick }) => (
 export default function Account({
   me, account, monogram, version, dark, setDark,
   onOpenPersonal, onOpenSecurity, onOpenContracts, onOpenSettings, onOpenNotifications,
-  onTransfer, onHistory, onOrders, onLogout,
+  onTransfer, onHistory, onOrders, onLogout, onExport,
 }) {
   const cash = Number(account?.cash_balance || 0);
   const blocked = Number(account?.blocked_balance || 0);
@@ -84,6 +84,12 @@ export default function Account({
         <div className="hline" />
         <Row tile="t6" icon="list" title={T("Güvenlik Politikası ve Sözleşmeler")} subtitle={T("KVKK, çerçeve sözleşme, risk bildirimi")} onClick={onOpenContracts} />
       </section>
+
+      {onExport && (
+        <button className="mk-btn ghost" style={{ width: "100%", height: 52 }} onClick={onExport}>
+          <Icon name="download" size={18} />{T("Hesap ekstresini indir (CSV)")}
+        </button>
+      )}
 
       <button className="mk-logout" onClick={onLogout}>
         <Icon name="logout" size={19} />{T("Çıkış Yap")}

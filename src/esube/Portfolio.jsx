@@ -1,7 +1,7 @@
 // Portföy — Mukatabak 2.5.1 APK'sındaki "Portföyüm" ekranının birebir karşılığı.
 import React, { useMemo, useState } from "react";
 import Icon from "./icons.jsx";
-import { Symbol, Sheet } from "./ui.jsx";
+import { Symbol, Sheet, Donut } from "./ui.jsx";
 import MiniSpark from "./mini.jsx";
 import { money, percent, signed } from "./market.js";
 import { T, locale } from "./lang.js";
@@ -194,6 +194,23 @@ export default function Portfolio({
 
   const rangeReturn = sliced.length >= 2 ? (sliced[sliced.length - 1].value / (sliced[0].value || 1) - 1) * 100 : dayRatio;
 
+  const SLICE_COLORS = ["#3b6cff", "#6c5ce7", "#16a34a", "#e08c2a", "#e5484d", "#0ea5b7", "#8b5cf6"];
+  const slices = useMemo(() => {
+    const base = total || 1;
+    const top = holdings.filter((item) => item.value > 0).slice(0, 6);
+    const rest = holdings.filter((item) => item.value > 0).slice(6).reduce((sum, item) => sum + item.value, 0);
+    const rows = top.map((item, index) => ({
+      label: item.symbol,
+      value: item.value,
+      share: item.value / base,
+      color: SLICE_COLORS[index % SLICE_COLORS.length],
+    }));
+    if (rest > 0) rows.push({ label: T("Diğer"), value: rest, share: rest / base, color: "#94a3b8" });
+    const money_ = cash + pending;
+    if (money_ > 0) rows.push({ label: T("Nakit"), value: money_, share: money_ / base, color: "#cbd5e1" });
+    return rows;
+  }, [holdings, total, cash, pending]);
+
   const gainers = useMemo(
     () => holdings.filter((item) => item.quantity > 0 && item.change > 0).sort((a, b) => b.change - a.change).slice(0, 3),
     [holdings]
@@ -224,7 +241,6 @@ export default function Portfolio({
             <span className={`mk-badge ${dayProfit >= 0 ? "up" : "down"}`}>
               {dayProfit >= 0 ? "▲" : "▼"} {hidden ? "•••" : (dayProfit >= 0 ? "+" : "−") + tr2(Math.abs(dayProfit))} ({pctText(dayRatio)})
             </span>
-            <span className="hint">{T("Günlük Değişim")}</span>
           </span>
         </div>
         <div className="mk-duo">
@@ -279,12 +295,6 @@ export default function Portfolio({
                   </React.Fragment>
                 );
               })}
-              <div className="hline" />
-              <div className="mk-cash">
-                <i><Icon name="wallet" size={18} /></i>
-                {T("Nakit (T+2)")}
-                <b>{mask(money(cash + pending))}</b>
-              </div>
             </>
           ) : (
             <div className="mk-empty">
@@ -378,6 +388,34 @@ export default function Portfolio({
           </div>
         )}
       </section>
+
+      {/* ---- varlık dağılımı ---- */}
+      {(holdings.length > 0 || cash > 0) && (
+        <section className="mk-card">
+          <div className="mk-card-head" style={{ marginBottom: 14 }}>
+            <h2>{T("Varlık Dağılımı")}</h2>
+          </div>
+          <div className="mk-split">
+            <Donut
+              parts={slices.map((slice) => [slice.share, slice.color])}
+              center={`${Math.round((stockValue / (total || 1)) * 100)}%`}
+              size={116}
+              track="rgba(27,37,89,.08)"
+              ink="var(--ink)"
+            />
+            <div className="mk-legend">
+              {slices.map((slice) => (
+                <div key={slice.label}>
+                  <i style={{ background: slice.color }} />
+                  <span>{slice.label}</span>
+                  <b>{mask(money(slice.value))}</b>
+                  <em>%{(slice.share * 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</em>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ---- en çok kazandıranlar ---- */}
       {gainers.length > 0 && (

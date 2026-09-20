@@ -134,6 +134,40 @@ http.createServer((req, res) => {
     res.end(JSON.stringify({ error: "Oturum yok" }));
     return;
   }
+  // /api/company/<SEMBOL> — hisse detay sayfası için örnek yanıt
+  if (url.pathname.startsWith("/api/company/")) {
+    const code = decodeURIComponent(url.pathname.split("/").pop() || "").toUpperCase();
+    const market = read("market.json");
+    const quote = (market.quotes || []).find((item) => item.symbol === code) || { symbol: code, name: code, price: 100, change_pct: 1.2 };
+    const base = Number(quote.price || 100);
+    const now = Math.floor(Date.now() / 1000);
+    const history = Array.from({ length: 120 }, (_, i) => {
+      const drift = Math.sin(i / 7) * base * 0.012 + (i / 120) * base * (Number(quote.change_pct || 0) / 100);
+      return { price: Math.round((base - base * 0.02 + drift) * 100) / 100, recorded_at: now - (120 - i) * 900 };
+    });
+    const payload = {
+      quote,
+      profile: {
+        description: `${quote.name}, Borsa İstanbul'da ${code} koduyla işlem gören halka açık bir şirkettir. Şirketin güncel faaliyet sınıflandırması sermaye piyasaları alanındadır. Finansal sonuçlar, özel durum açıklamaları ve yönetim duyuruları resmi KAP bildirimleriyle birlikte değerlendirilmelidir.`,
+        risk_note: "",
+        sector: "Sanayi",
+        industry: "Havacılık ve savunma",
+        official_site: "",
+      },
+      news: (read("news.json").items || []).slice(0, 3),
+      analysis: [],
+      history,
+      research_sources: [
+        { name: "İş Yatırım Şirket Kartı", description: "Finansallar, oranlar ve araştırma raporları", url: `https://www.isyatirim.com.tr/tr-tr/analiz/hisse/Sayfalar/sirket-karti.aspx?hisse=${code}` },
+        { name: "KAP Bildirimleri", description: "Resmi şirket bildirimleri", url: "https://www.kap.org.tr" },
+      ],
+      disclaimer: "Haber ve araştırma bağlantıları bilgi amaçlıdır; yatırım tavsiyesi değildir.",
+    };
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify(payload));
+    return;
+  }
+
   const route = routes[url.pathname] || adminRoutes[url.pathname];
   if (route) {
     const body = JSON.stringify(asAdmin(route(req.url)));

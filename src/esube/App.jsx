@@ -4,6 +4,8 @@ import Icon from "./icons.jsx";
 import { Symbol, SearchBox, Sheet, Dialog, Divided, Overlay } from "./ui.jsx";
 import Home, { InstrumentRow } from "./Home.jsx";
 import Stocks from "./Stocks.jsx";
+import Stock from "./Stock.jsx";
+import News from "./News.jsx";
 import { Article } from "./News.jsx";
 import Portfolio from "./Portfolio.jsx";
 import Account from "./Account.jsx";
@@ -159,6 +161,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const [portfolioHidden, setPortfolioHidden] = useState(false);
   const [returnTo, setReturnTo] = useState(0);
   const [article, setArticle] = useState(null);
+  const [stockCode, setStockCode] = useState("");
   const [document_, setDocument_] = useState(null);
   const body = useRef(null);
 
@@ -210,6 +213,16 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   }, [holdingByCode]);
 
   const [lastStock, setLastStock] = useState(null);
+
+  /** Hisse satırına dokunulduğunda detay sayfası açılır; emir oradan verilir. */
+  const openStock = (item) => {
+    const code = item?.code || item?.symbol;
+    if (!code) return;
+    const stock = asStock(item);
+    if (stock) setLastStock(stock);
+    setStockCode(code);
+    go(15, tab);
+  };
   const REFERRAL_ONLY = {
     fund: ["Fon işlemleri", "Fon alış satışları için referansınız ile iletişime geçiniz."],
     ipo: ["Halka arz talebi", "Halka arz alış satışları için referansınız ile iletişime geçiniz."],
@@ -269,7 +282,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             state={market.state}
             unread={notifications.unread}
             onNotifications={() => { setOverlay({ kind: "notifications" }); notifications.markRead(); }}
-            openTrade={(item) => openTrade(item, { sheet: true })}
+            openTrade={openStock}
           />
         );
       case 3:
@@ -288,7 +301,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             setTab={setPortfolioTab}
             hidden={portfolioHidden}
             setHidden={setPortfolioHidden}
-            openPosition={(item) => openTrade(item, { sheet: true, buying: false })}
+            openPosition={openStock}
             onCancelOrder={async (order) => {
               try { await api(`/api/orders/${order.id}/cancel`, { method: "POST", body: "{}" }); } catch (error) { showNotice("Emir iptali", error.message); }
               portfolio.reload();
@@ -313,6 +326,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             onTransfer={(deposit) => setOverlay({ kind: "transfer", deposit })}
             onHistory={() => { setPortfolioTab(1); go(3); }}
             onOrders={() => { setPortfolioTab(2); go(3); }}
+            onExport={() => { window.location.href = "/api/transactions/export"; }}
             onLogout={onLogout}
           />
         );
@@ -409,7 +423,31 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
       case 13:
         return <NotifyHost onBack={() => go(returnTo)} onNotice={showNotice} onSaved={() => { go(returnTo); showNotice("Kaydedildi", "Bildirim tercihlerin güncellendi."); }} />;
       case 14:
-        return <Article item={article || {}} onBack={() => go(0)} />;
+        return <Article item={article || {}} onBack={() => go(returnTo)} />;
+      case 15:
+        return (
+          <Stock
+            code={stockCode}
+            instrument={instrumentByCode.get(stockCode)}
+            holding={holdingByCode.get(stockCode)}
+            watched={watchlist.includes(stockCode)}
+            onToggleWatch={() => toggleWatch(stockCode)}
+            onBack={() => go(returnTo)}
+            onOpenNews={(item) => { setArticle(item); go(14, 15); }}
+            onTrade={(buying) => openTrade(instrumentByCode.get(stockCode) || lastStock, { sheet: true, buying })}
+          />
+        );
+      case 16:
+        return (
+          <News
+            marketTab={marketTab}
+            setMarketTab={setMarketTab}
+            items={newsFeed.items}
+            state={newsFeed.state}
+            onBack={() => go(returnTo)}
+            onOpen={(item) => { setArticle(item); go(14, 16); }}
+          />
+        );
       default:
         return (
           <Home
@@ -420,14 +458,15 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             news={newsFeed.items}
             newsState={newsFeed.state}
             onOpenNews={(item) => { setArticle(item); go(14, 0); }}
-            openTrade={(item) => openTrade(item, { sheet: true })}
+            onAllNews={() => go(16, 0)}
+            openTrade={openStock}
           />
         );
     }
   })();
 
   const navActive = (index) =>
-    tab === index || (tab === 14 ? index === 0 : tab >= 5 && index === 4);
+    tab === index || (tab === 14 || tab === 16 ? index === 0 : tab === 15 ? index === 1 : tab >= 5 && index === 4);
 
   const navigate = (index) => {
     if (index === 2) {

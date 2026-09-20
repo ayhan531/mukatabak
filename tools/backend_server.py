@@ -676,9 +676,11 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "audit_logs", "user_agent", "TEXT DEFAULT ''")
     ensure_column(conn, "audit_logs", "request_id", "TEXT DEFAULT ''")
     conn.execute("UPDATE t2_settlements SET remaining_amount=amount WHERE status='pending' AND remaining_amount<=0")
-    conn.execute("UPDATE users SET account_no=printf('OT%06d', id) WHERE account_no IS NULL OR account_no=''")
+    conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE account_no IS NULL OR account_no=''")
     conn.execute("UPDATE users SET account_no='GM' || substr(account_no, 3) WHERE account_no LIKE 'FY%'")
-    conn.execute("UPDATE users SET account_no='OT' || substr(account_no, 3) WHERE account_no LIKE 'AU%' OR account_no LIKE 'PM%' OR account_no LIKE 'GM%'")
+    conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'AU%' OR account_no LIKE 'PM%' OR account_no LIKE 'GM%'")
+    # Ottoman'dan devralinan hesap numaralari Mukatabak on ekine tasinir.
+    conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'OT%'")
     conn.execute("UPDATE system_bank_accounts SET is_active=0 WHERE REPLACE(iban, ' ', '') LIKE 'TR00%'")
     conn.execute("UPDATE orders SET gross_total=total WHERE gross_total<=0")
     conn.execute("UPDATE sessions SET last_seen_at=created_at WHERE last_seen_at<=0")
@@ -875,7 +877,7 @@ def seed_admin(conn: sqlite3.Connection) -> None:
             """,
             updates,
         )
-        conn.execute("UPDATE users SET account_no=printf('OT%06d', id) WHERE id=? AND (account_no IS NULL OR account_no='')", (existing["id"],))
+        conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=? AND (account_no IS NULL OR account_no='')", (existing["id"],))
         conn.execute("INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, 0, 0, 0)", (existing["id"],))
         conn.commit()
         return
@@ -887,7 +889,7 @@ def seed_admin(conn: sqlite3.Connection) -> None:
         """,
         (admin_tc, salt, digest, os.environ.get("ADMIN_NAME", "Mukatabak Yönetici")[:120], "08508887000", os.environ.get("ADMIN_EMAIL", "admin@mukatabak.local")[:120], "Istanbul", now(), now()),
     )
-    conn.execute("UPDATE users SET account_no=printf('OT%06d', id) WHERE id=?", (cur.lastrowid,))
+    conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (cur.lastrowid,))
     conn.execute("INSERT INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, 0, 0, 0)", (cur.lastrowid,))
     conn.commit()
 
@@ -943,7 +945,7 @@ def seed_test_user(conn: sqlite3.Connection) -> None:
             """,
             updates,
         )
-        conn.execute("UPDATE users SET account_no=printf('OT%06d', id) WHERE id=? AND (account_no IS NULL OR account_no='')", (existing["id"],))
+        conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=? AND (account_no IS NULL OR account_no='')", (existing["id"],))
         conn.execute(
             "INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, pending_balance, credit_limit) VALUES (?, ?, 0, 0, ?)",
             (existing["id"], cash, credit),
@@ -961,7 +963,7 @@ def seed_test_user(conn: sqlite3.Connection) -> None:
         (test_tc, salt, digest, full_name, phone, email, city, district, now(), now()),
     )
     user_id = cur.lastrowid
-    conn.execute("UPDATE users SET account_no=printf('OT%06d', id) WHERE id=?", (user_id,))
+    conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (user_id,))
     conn.execute(
         "INSERT INTO accounts (user_id, cash_balance, blocked_balance, pending_balance, credit_limit) VALUES (?, ?, 0, 0, ?)",
         (user_id, cash, credit),
@@ -1813,6 +1815,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.api_news()
         if method == "GET" and path == "/api/market-news":
             return self.api_market_news()
+        if method == "GET" and path == "/api/app/download":
+            return self.api_app_download()
         if method == "GET" and path.startswith("/api/logo/"):
             parts = path.strip("/").split("/")
             if len(parts) == 3:
@@ -2462,7 +2466,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 (tc, salt, digest, full_name, phone, email, city, district, birth_date, address, risk_profile_for(suitability_score), suitability_score, now(), AGREEMENTS_VERSION, now(), referrer["id"] if referrer else None, now()),
             )
             user_id = cur.lastrowid
-            conn.execute("UPDATE users SET account_no=printf('OT%06d', id) WHERE id=?", (user_id,))
+            conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (user_id,))
             conn.execute("INSERT INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, 0, 0, 0)", (user_id,))
             conn.executemany(
                 "INSERT INTO user_agreements (user_id, agreement_type, agreement_version, accepted_at, ip_address) VALUES (?, ?, ?, ?, ?)",
@@ -2536,7 +2540,7 @@ class AppHandler(BaseHTTPRequestHandler):
             )
             audit(conn, None, "create_contact_message", "contact_message", cur.lastrowid, None, self.request_ip(), self.headers.get("User-Agent", ""))
             conn.commit()
-            self.json_response({"ok": True, "reference": f"GM-DST-{int(cur.lastrowid):06d}"}, 201)
+            self.json_response({"ok": True, "reference": f"MK-DST-{int(cur.lastrowid):06d}"}, 201)
 
     def api_news(self) -> None:
         items, meta = latest_news()
@@ -2557,6 +2561,27 @@ class AppHandler(BaseHTTPRequestHandler):
             "items": items,
             "meta": {"ok": live, "count": len(items), "source": "Bing Haberler"},
         })
+
+    def api_app_download(self) -> None:
+        """Tanıtım sayfasındaki 'Android uygulaması' bağlantısı — depo kökündeki APK'yı sunar."""
+        candidates = sorted(ROOT.glob("*.apk"), key=lambda item: item.name)
+        apk = next((item for item in candidates if item.is_file() and item.stat().st_size > 0), None)
+        if not apk:
+            raise HttpError(404, "Uygulama dosyası bulunamadı")
+        size = apk.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", "application/vnd.android.package-archive")
+        self.send_header("Content-Disposition", f'attachment; filename="{apk.name}"')
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.security_headers()
+        self.end_headers()
+        with apk.open("rb") as handle:
+            while True:
+                chunk = handle.read(256 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
 
     def api_company_logo(self, raw_symbol: str) -> None:
         symbol = clean_symbol(raw_symbol)
@@ -2833,7 +2858,7 @@ class AppHandler(BaseHTTPRequestHandler):
                   (user_id, symbol, side, order_type, quantity, limit_price, source_price, gross_total, commission, total, client_order_id, execution_reference, price_updated_at, cancel_remaining, status, note, created_at, reviewed_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user["id"], symbol, side, order_type, quantity, price, quote["price"], gross_total, commission, total, client_order_id, f"GM-EMR-{now()}-{secrets.randbelow(10000):04d}", int(quote.get("updated_at") or now()), cancel_remaining, status, note, now(), now() if status == "approved" else None),
+                (user["id"], symbol, side, order_type, quantity, price, quote["price"], gross_total, commission, total, client_order_id, f"MK-EMR-{now()}-{secrets.randbelow(10000):04d}", int(quote.get("updated_at") or now()), cancel_remaining, status, note, now(), now() if status == "approved" else None),
             )
             order_id = cur.lastrowid
             if side == "buy":
@@ -2879,7 +2904,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 account_ref = bank_row["iban"] if bank_row else ""
             receipt = save_money_receipt(form, user["id"]) if form is not None and request_type == "deposit" else {}
             if request_type == "deposit":
-                transfer_code = transfer_code or f"{user.get('account_no') or 'GM'}-{now()}"
+                transfer_code = transfer_code or f"{user.get('account_no') or 'MK'}-{now()}"
                 selected_iban = turkish_iban(account_ref)
                 bank_row = conn.execute("SELECT * FROM system_bank_accounts WHERE is_active=1 AND REPLACE(iban, ' ', '')=?", (selected_iban,)).fetchone() if selected_iban else None
                 if not bank_row:
@@ -3009,7 +3034,7 @@ class AppHandler(BaseHTTPRequestHandler):
             audit_rows = [dict(row) for row in conn.execute("SELECT a.*, u.full_name actor_name FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 120").fetchall()]
             for row in audit_rows:
                 row["created_at_label"] = iso_time(row["created_at"])
-                row["reference"] = f"GM-DNT-{int(row['id']):08d}"
+                row["reference"] = f"MK-DNT-{int(row['id']):08d}"
             account_totals = conn.execute("SELECT COALESCE(SUM(cash_balance),0) cash, COALESCE(SUM(blocked_balance),0) blocked, COALESCE(SUM(pending_balance),0) pending, COALESCE(SUM(credit_limit),0) credit FROM accounts").fetchone()
             transaction_totals = conn.execute("SELECT transaction_type, COUNT(*) count, COALESCE(SUM(total),0) total FROM user_transactions GROUP BY transaction_type").fetchall()
             self.json_response({"orders": order_totals, "money": money_totals, "users": users_by_status, "audit": audit_rows, "reconciliation": dict(account_totals), "transactions": [dict(row) for row in transaction_totals]})
@@ -3021,7 +3046,7 @@ class AppHandler(BaseHTTPRequestHandler):
             export_type = (query.get("type") or ["transactions"])[0]
             if export_type == "audit":
                 rows = conn.execute("SELECT a.*, u.full_name actor_name FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id ORDER BY a.created_at DESC LIMIT 5000").fetchall()
-                return self.csv_response("denetim-kaydi.csv", ["Referans", "Tarih", "Yetkili", "İşlem", "Varlık", "Varlık No", "IP", "Detay"], [[f"GM-DNT-{row['id']:08d}", iso_time(row["created_at"]), row["actor_name"] or "Sistem", row["action"], row["entity_type"], row["entity_id"] or "", row["ip_address"], row["payload"]] for row in rows])
+                return self.csv_response("denetim-kaydi.csv", ["Referans", "Tarih", "Yetkili", "İşlem", "Varlık", "Varlık No", "IP", "Detay"], [[f"MK-DNT-{row['id']:08d}", iso_time(row["created_at"]), row["actor_name"] or "Sistem", row["action"], row["entity_type"], row["entity_id"] or "", row["ip_address"], row["payload"]] for row in rows])
             rows = filtered_transactions(conn, query=query)
             return self.csv_response("mutabakat-hareketleri.csv", ["Referans", "Tarih", "Müşteri", "İşlem", "Sembol", "Adet", "Fiyat", "Tutar", "Önceki Bakiye", "Sonraki Bakiye", "Açıklama"], [[row["reference"], row["created_at_label"], row["full_name"], row["type_label"], row["code"], row["quantity"], row["price"], row["total"], row["balance_before"], row["balance_after"], row["note"]] for row in rows])
 
@@ -3029,7 +3054,7 @@ class AppHandler(BaseHTTPRequestHandler):
         with connect_db() as conn:
             self.require_admin(conn)
             rows = conn.execute("SELECT * FROM contact_messages ORDER BY created_at DESC LIMIT 500").fetchall()
-            self.json_response({"messages": [{**dict(row), "reference": f"GM-DST-{int(row['id']):06d}", "created_at_label": iso_time(row["created_at"])} for row in rows]})
+            self.json_response({"messages": [{**dict(row), "reference": f"MK-DST-{int(row['id']):06d}", "created_at_label": iso_time(row["created_at"])} for row in rows]})
 
     def api_admin_documents(self) -> None:
         with connect_db() as conn:
@@ -3952,7 +3977,7 @@ def transaction_rows(conn: sqlite3.Connection, where: str, params: tuple = (), l
     items = []
     for row in rows:
         item = dict(row)
-        item["reference"] = f"GM-HRK-{int(item['id']):08d}"
+        item["reference"] = f"MK-HRK-{int(item['id']):08d}"
         item["type_label"] = labels.get(item["transaction_type"], item["transaction_type"])
         item["created_at_label"] = iso_time(item["created_at"])
         items.append(item)
@@ -3983,7 +4008,7 @@ def filtered_transactions(conn: sqlite3.Connection, user_id: int | None = None, 
         clauses.append("t.transaction_type=?")
         params.append(transaction_type)
     if search:
-        clauses.append("(t.code LIKE ? OR t.name LIKE ? OR t.note LIKE ? OR u.full_name LIKE ? OR printf('GM-HRK-%08d', t.id) LIKE ?)")
+        clauses.append("(t.code LIKE ? OR t.name LIKE ? OR t.note LIKE ? OR u.full_name LIKE ? OR printf('MK-HRK-%08d', t.id) LIKE ?)")
         token = f"%{search}%"
         params.extend([token, token, token, token, token])
     where = "WHERE " + " AND ".join(clauses) if clauses else ""

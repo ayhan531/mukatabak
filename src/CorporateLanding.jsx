@@ -221,7 +221,7 @@ function LiveTicker({ quotes }) {
               <span>{label}</span>
               <strong>{fmt(quote.price)}</strong>
               <em className={up ? 'up' : 'down'}>
-                {(up ? '▲ +' : '▼ ')}%{fmt(Math.abs(Number(quote.change_pct || 0)))}
+                {(up ? '▲ +' : '▼ −')}%{fmt(Math.abs(Number(quote.change_pct || 0)))}
               </em>
             </article>
           );
@@ -256,20 +256,20 @@ function PhoneMock({ quotes }) {
             <span className="pm-ava">İS</span>
           </div>
           <div className="pm-strip">
-            <div className="pm-tile">
-              <span>BIST 100</span>
-              <strong>{fmt(index100?.price || 9758.23)}</strong>
-              <em className={Number(index100?.change_pct ?? 1.7) >= 0 ? 'up' : 'down'}>
-                ▲ %{fmt(Math.abs(Number(index100?.change_pct ?? 1.7)))}
-              </em>
-            </div>
-            <div className="pm-tile">
-              <span>BIST 30</span>
-              <strong>{fmt(index30?.price || 10612.4)}</strong>
-              <em className={Number(index30?.change_pct ?? 1.75) >= 0 ? 'up' : 'down'}>
-                ▲ %{fmt(Math.abs(Number(index30?.change_pct ?? 1.75)))}
-              </em>
-            </div>
+            {/* Ok yönü her zaman değişimin işaretini gösterir. */}
+            {[['BIST 100', index100, 9758.23, 1.7], ['BIST 30', index30, 10612.4, 1.75]].map(([etiket, veri, fiyat, oran]) => {
+              const yuzde = Number(veri?.change_pct ?? oran);
+              const yukari = yuzde >= 0;
+              return (
+                <div className="pm-tile" key={etiket}>
+                  <span>{etiket}</span>
+                  <strong>{fmt(veri?.price || fiyat)}</strong>
+                  <em className={yukari ? 'up' : 'down'}>
+                    {yukari ? '▲' : '▼'} %{fmt(Math.abs(yuzde))}
+                  </em>
+                </div>
+              );
+            })}
           </div>
           <div className="pm-search"><Search size={14} /> Hisse ara</div>
           <div className="pm-card">

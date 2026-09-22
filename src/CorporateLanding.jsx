@@ -154,6 +154,15 @@ const TICKERS = [
   ['EURTRY', 'Euro'], ['THYAO', 'THYAO'], ['ASELS', 'ASELS'], ['TUPRS', 'TUPRS'],
 ];
 
+/* Başlığın hemen altındaki kayan şeritte görünecek semboller. */
+const BANT = [
+  ['XU100', 'BIST 100'], ['XU030', 'BIST 30'], ['XBANK', 'BIST Banka'],
+  ['USDTRY', 'Dolar'], ['EURTRY', 'Euro'], ['XAUTRY', 'Gram Altın'],
+  ['THYAO', 'THYAO'], ['ASELS', 'ASELS'], ['TUPRS', 'TUPRS'],
+  ['GARAN', 'GARAN'], ['AKBNK', 'AKBNK'], ['SASA', 'SASA'],
+  ['KCHOL', 'KCHOL'], ['EREGL', 'EREGL'], ['BIMAS', 'BIMAS'],
+];
+
 function useMarket() {
   const [quotes, setQuotes] = useState([]);
   useEffect(() => {
@@ -171,6 +180,32 @@ function useMarket() {
 
 const fmt = (value, digits = 2) =>
   Number(value || 0).toLocaleString('tr-TR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+/* Başlığın altında sürekli kayan canlı fiyat şeridi — aracı kurum
+   sitelerindeki bant. Veri gelmeden hiçbir şey çizilmez. */
+function MarketBand({ quotes }) {
+  const by = new Map(quotes.map((quote) => [quote.symbol, quote]));
+  const rows = BANT.map(([code, label]) => [label, by.get(code)]).filter(([, quote]) => quote);
+  if (rows.length < 4) return null;
+  const hucre = (label, quote, key) => {
+    const up = Number(quote.change_pct || 0) >= 0;
+    return (
+      <span key={key}>
+        <b>{label}</b>
+        <i>{fmt(quote.price)}</i>
+        <em className={up ? 'up' : 'down'}>{(up ? '+' : '−')}%{fmt(Math.abs(Number(quote.change_pct || 0)))}</em>
+      </span>
+    );
+  };
+  return (
+    <div className="corporate-band" aria-label="Canlı piyasa şeridi">
+      <div className="corporate-band-lane">
+        {rows.map(([label, quote], i) => hucre(label, quote, 'a' + i))}
+        {rows.map(([label, quote], i) => hucre(label, quote, 'b' + i))}
+      </div>
+    </div>
+  );
+}
 
 function LiveTicker({ quotes }) {
   const by = new Map(quotes.map((quote) => [quote.symbol, quote]));
@@ -346,6 +381,8 @@ export default function CorporateLanding({ openAuth }) {
           {menu ? <X /> : <Menu />}
         </button>
       </header>
+
+      <MarketBand quotes={quotes} />
 
       <main>
         {page === 'Ana Sayfa' ? (

@@ -516,9 +516,16 @@
   .corporate-actions button, .corporate-actions a { padding: 14px 20px; font-size: 15px; width: 100%; }
   .corporate-trust span { font-size: 12.5px; padding: 8px 12px; }
   .phone-frame { width: 240px; height: 488px; }
-  .fee-table th, .fee-table td { padding: 13px 14px; font-size: 13.5px; }
-  .fee-table td:last-child { display: none; }
-  .fee-table th:last-child { display: none; }
+  /* Telefonda tablo satırları karta dönüşür; açıklama sütunu gizlenmek
+     yerine oranın altına iner, bilgi kaybı olmaz. */
+  .fee-table thead { display: none; }
+  .fee-table table, .fee-table tbody, .fee-table tr, .fee-table td { display: block; width: 100%; }
+  .fee-table tr { border-top: 1px solid var(--line); padding: 13px 16px; }
+  .fee-table tr:first-child { border-top: 0; }
+  .fee-table td { border: 0; padding: 0; font-size: 14px; }
+  .fee-table td:first-child { font-weight: 600; }
+  .fee-table td:nth-child(2) { margin-top: 3px; }
+  .fee-table td:last-child { margin-top: 4px; font-size: 13px; line-height: 1.5; }
   .corporate-numbers > div:last-child { grid-template-columns: 1fr 1fr; }
   .corporate-page > h1 { letter-spacing: -1px; }
 }
@@ -541,4 +548,117 @@
 .corporate-hero .corporate-licence{width:max-content}
 @media(max-width:560px){
   .corporate-licence{font-size:12px;padding:9px 14px;white-space:normal;text-align:left;line-height:1.35}
+}
+
+/* ---------------------------------------------------------- canlı bant */
+/* Başlığın hemen altında sürekli kayan fiyat şeridi. */
+.corporate-band {
+  overflow: hidden;
+  background: #0d1430;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+  mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+}
+.corporate-band-lane {
+  display: flex; width: max-content; gap: 30px;
+  padding: 9px 0;
+  animation: bandRun 62s linear infinite;
+}
+.corporate-band-lane:hover { animation-play-state: paused; }
+.corporate-band-lane span { display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap; font-size: 13px; }
+.corporate-band-lane b { color: rgba(255, 255, 255, .62); font-weight: 600; letter-spacing: .02em; }
+.corporate-band-lane i { font-style: normal; color: #fff; font-weight: 700; }
+.corporate-band-lane em { font-style: normal; font-weight: 700; font-size: 12.5px; }
+.corporate-band-lane em.up { color: #4ade80; }
+.corporate-band-lane em.down { color: #fb7185; }
+@keyframes bandRun { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .corporate-band-lane { animation: none; } }
+
+/* ---------------------------------------------------------- telefon düzeni */
+/* Tanıtım sayfası telefonda da bir aracı kurum sitesi gibi okunsun:
+   kahraman bölümü kısalır, düğmeler yan yana durur, bölüm boşlukları azalır. */
+@media (max-width: 720px) {
+  .corporate-band-lane { gap: 22px; animation-duration: 46s; }
+  .corporate-band-lane span { font-size: 12.5px; }
+
+  .corporate-hero { padding: 26px 18px 40px; }
+  .hero-grid { gap: 26px; }
+  .corporate-hero h1 { font-size: clamp(31px, 9vw, 44px); letter-spacing: -1.3px; margin: 14px 0 10px; line-height: 1.08; }
+  .hero-lead { font-size: 15.5px; line-height: 1.55; max-width: 34em; }
+  .corporate-eyebrow { font-size: 11px; padding: 7px 13px; }
+
+  /* Düğmeler yan yana: tek tek tam genişlik dev bloklar olmasın. */
+  .corporate-hero .corporate-actions { margin-top: 20px; gap: 10px; flex-wrap: nowrap; }
+  .corporate-hero .corporate-actions button { flex: 1 1 0; min-width: 0; padding: 13px 12px; font-size: 14.5px; width: auto; }
+  .corporate-hero .corporate-actions button svg { flex: none; }
+
+  .corporate-trust { gap: 8px; margin-top: 18px; }
+  .corporate-trust span { font-size: 12px; padding: 7px 11px; }
+  .corporate-hero .corporate-licence { margin-top: 14px; font-size: 12px; padding: 8px 13px; }
+
+  .corporate-section { padding: 40px 18px; }
+  .corporate-heading { margin-bottom: 24px; }
+  .corporate-heading h2 { font-size: 25px; letter-spacing: -.6px; }
+  .corporate-heading p { font-size: 15px; }
+  .corporate-regulators { padding: 26px 18px; }
+  .corporate-regulators > div { gap: 8px 14px; }
+  .corporate-regulators a { font-size: 13.5px; padding: 6px 10px; }
+  .corporate-numbers { padding: 34px 18px; }
+  .corporate-cta { padding: 44px 18px; }
+  .corporate-footer { padding: 36px 18px 26px; }
+  .corporate-ticker-wrap { margin-top: -28px; padding-inline: 18px; }
+  .corporate-ticker article { min-width: 148px; padding: 12px 14px; }
+  .corporate-ticker strong { font-size: 19px; }
+}
+
+@media (max-width: 720px) {
+  .corporate-hero .corporate-actions button { font-size: 14px; padding: 13px 10px; gap: 6px; }
+}
+@media (max-width: 348px) {
+  .corporate-hero .corporate-actions { flex-wrap: wrap; }
+  .corporate-hero .corporate-actions button { flex: 1 1 100%; }
+}
+
+/* Sahte iOS ana ekran çizgisi gerçek tarayıcıda görünmesin. */
+.auth-stage .home-indicator, .admin-stage .home-indicator { display: none; }
+
+/* Telefonda kartlar dikey kutular yerine satır olur: ikon solda, metin
+   sağda. Sayfa yarı yarıya kısalır ve gerçek bir kurum sitesi gibi okunur. */
+@media (max-width: 720px) {
+  .corporate-features, .corporate-services, .corporate-steps { gap: 10px; }
+
+  .corporate-features article,
+  .corporate-services article,
+  .corporate-steps article {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 14px;
+    row-gap: 4px;
+    align-items: start;
+    padding: 16px 16px;
+    border-radius: 16px;
+  }
+  .corporate-features .ficon,
+  .corporate-services article > svg,
+  .corporate-steps .num {
+    grid-row: 1 / span 2;
+    width: 42px; height: 42px; margin: 0; border-radius: 12px;
+  }
+  .corporate-services article > svg { padding: 10px; }
+  .corporate-features h3, .corporate-services h3, .corporate-steps h3 {
+    grid-column: 2; font-size: 16px; margin: 1px 0 0; align-self: center;
+  }
+  .corporate-features p, .corporate-services p, .corporate-steps p {
+    grid-column: 2; font-size: 13.5px; line-height: 1.55; margin: 0;
+  }
+  .corporate-services button { grid-column: 2; margin-top: 8px; font-size: 13.5px; }
+
+  /* rakamlar ve alt bilgi biraz daha sıkı */
+  .corporate-numbers > div:last-child { gap: 18px; }
+  .corporate-numbers strong { font-size: 28px; letter-spacing: -.9px; }
+  .corporate-numbers p { font-size: 13px; }
+  .corporate-footer { grid-template-columns: 1fr 1fr; gap: 22px 18px; }
+  .corporate-footer h4 { font-size: 13px; }
+  .corporate-footer a, .corporate-footer li, .corporate-footer p { font-size: 13.5px; }
 }

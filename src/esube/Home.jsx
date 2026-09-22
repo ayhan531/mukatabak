@@ -106,10 +106,29 @@ const cleanTitle = (title = "") => {
 };
 
 export function NewsRow({ item, index, onOpen }) {
+  const [bozuk, setBozuk] = useState(false);
+  const gorsel = item.image_url || item.photo_url || "";
+  const fotoVar = Boolean(gorsel) && !bozuk;
   return (
     <button className="mk-news" onClick={() => onOpen?.(item)}>
       <span className={`thumb v${(index % 3) + 1}`}>
-        {item.image_url ? <img src={item.image_url} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Icon name="news" size={26} />}
+        {fotoVar ? (
+          <img
+            src={gorsel}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setBozuk(true)}
+            onLoad={(event) => {
+              const g = event.currentTarget;
+              // Yer tutucu görseller (çok küçük) yerine haber işareti gösterilir.
+              if (g.naturalWidth < 80 || g.naturalHeight < 60) setBozuk(true);
+            }}
+          />
+        ) : (
+          <Icon name="news" size={26} />
+        )}
       </span>
       <span>
         <b>{cleanTitle(item.title)}</b>

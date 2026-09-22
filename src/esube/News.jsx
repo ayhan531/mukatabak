@@ -23,7 +23,42 @@ const cleanTitle = (title = "") => {
   return text;
 };
 
+/* Haber satırı: gerçek fotoğrafla. Görsel gelmezse ya da yer tutucu kadar
+   küçükse satır işaretle gösterilir; liste hiçbir zaman boş kare göstermez. */
+function NewsRow({ item, index, onOpen }) {
+  const [bozuk, setBozuk] = useState(false);
+  const gorsel = item.image_url || item.photo_url || "";
+  const fotoVar = Boolean(gorsel) && !bozuk;
+  return (
+    <button className="mk-news" onClick={() => onOpen(item)}>
+      <span className={`thumb v${(index % 3) + 1}`}>
+        {fotoVar ? (
+          <img
+            src={gorsel}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setBozuk(true)}
+            onLoad={(event) => {
+              const g = event.currentTarget;
+              if (g.naturalWidth < 80 || g.naturalHeight < 60) setBozuk(true);
+            }}
+          />
+        ) : (
+          <Icon name="news" size={24} />
+        )}
+      </span>
+      <span>
+        <b>{cleanTitle(item.title)}</b>
+        <span><Icon name="clock" size={13} />{shortDate(item.published_at) || item.source || ""}</span>
+      </span>
+    </button>
+  );
+}
+
 export function Article({ item, onBack }) {
+  const [gorselBozuk, setGorselBozuk] = useState(false);
   return (
     <div className="page">
       <div className="page-head with-tail">
@@ -35,9 +70,20 @@ export function Article({ item, onBack }) {
         <span />
       </div>
       <section className="mk-card">
-        {item.image_url && (
+        {item.image_url && !gorselBozuk && (
           <div className="article-photo">
-            <img src={item.image_url} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+            <img
+              src={item.image_url}
+              alt=""
+              decoding="async"
+              referrerPolicy="no-referrer"
+              onError={() => setGorselBozuk(true)}
+              onLoad={(event) => {
+                const g = event.currentTarget;
+                // Boş/yer tutucu görseller (çok küçük ya da aşırı ince) gösterilmez.
+                if (g.naturalWidth < 120 || g.naturalHeight < 80) setGorselBozuk(true);
+              }}
+            />
           </div>
         )}
         <h2 style={{ margin: "4px 0 12px", fontSize: "calc(21px * var(--s))", fontWeight: 700, lineHeight: 1.32 }}>
@@ -103,17 +149,7 @@ export default function News({ marketTab, setMarketTab, items, state, onOpen, on
           shown.map((item, index) => (
             <React.Fragment key={item.link || item.id || index}>
               {index > 0 && <div className="hline" />}
-              <button className="mk-news" onClick={() => onOpen(item)}>
-                <span className={`thumb v${(index % 3) + 1}`}>
-                  {item.image_url
-                    ? <img src={item.image_url} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} />
-                    : <Icon name="news" size={24} />}
-                </span>
-                <span>
-                  <b>{cleanTitle(item.title)}</b>
-                  <span><Icon name="clock" size={13} />{shortDate(item.published_at) || item.source || ""}</span>
-                </span>
-              </button>
+              <NewsRow item={item} index={index} onOpen={onOpen} />
             </React.Fragment>
           ))
         ) : (

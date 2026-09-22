@@ -5,13 +5,15 @@ import "./extra.css";
 import "./esube/theme.css";
 import "./esube/skin.css";
 import CorporateLanding from "./CorporateLanding";
-import Esube from "./esube/App.jsx";
+import Esube, { InstallSheet } from "./esube/App.jsx";
 import { AuthScreen } from "./legacy.jsx";
 import AdminConsole from "./AdminConsole.jsx";
 import { api, onSessionLost, resetSessionGuard } from "./esube/store.js";
 import { hasPendingTc } from "./esube/accounts.js";
 import { trackSafeArea } from "./esube/safearea.js";
-import { trackInstall, registerWorker, isStandalone, refreshPush } from "./esube/pwa.js";
+import { trackInstall, registerWorker, isStandalone, refreshPush, clearOfflineData, kurulumIstendi } from "./esube/pwa.js";
+import { Dialog } from "./esube/ui.jsx";
+import { useGeriTusu } from "./esube/geri.js";
 
 const normalize = (data) => data?.user || (data?.id ? data : null);
 
@@ -22,6 +24,9 @@ function Root() {
   const [authOpen, setAuthOpen] = useState(() => isStandalone());
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminData, setAdminData] = useState(null);
+  // Kurulum bağlantısıyla gelenlerde kurulum ekranı tanıtım sayfasının üstünde açılır.
+  const [kurEkrani, setKurEkrani] = useState(() => kurulumIstendi() && !isStandalone());
+  const [uyari, setUyari] = useState(null);
 
   const loadMe = useCallback(async () => {
     try {
@@ -51,6 +56,13 @@ function Root() {
     return () => document.body.classList.remove("esube-open");
   }, [me, showAdmin]);
 
+  /* Giriş ekranındayken ya da admin panelindeyken geri tuşu siteden
+     çıkarmasın; bir önceki ekrana dönsün. */
+  useGeriTusu((!me && authOpen) || (Boolean(me) && showAdmin), () => {
+    if (showAdmin) { setShowAdmin(false); return; }
+    setAuthOpen(false);
+  });
+
   const loadAdmin = useCallback(async () => {
     if (!me || me.role !== "admin") return;
     const [summary, users, orders, moneyData, reports, systemSettings, market, news] = await Promise.all([
@@ -79,6 +91,7 @@ function Root() {
 
   const logout = async () => {
     await api("/api/logout", { method: "POST", body: "{}" }).catch(() => {});
+    clearOfflineData();
     setMe(null);
     setAdminData(null);
     setShowAdmin(false);
@@ -87,7 +100,22 @@ function Root() {
   };
 
   if (!ready) return null;
-  if (!me && !authOpen) return <CorporateLanding openAuth={() => setAuthOpen(true)} />;
+  // Bağlantıya "?kur=1" ile gelindiyse (Telegram/Instagram içinden yönlendirme)
+  // kurulum ekranı giriş yapılmadan da açılır; kurulum girişten önce gelir.
+  if (!me && !authOpen) {
+    return (
+      <>
+        <CorporateLanding openAuth={() => setAuthOpen(true)} />
+        {kurEkrani && <InstallSheet onClose={() => setKurEkrani(false)} onNotice={(baslik, metin) => setUyari({ baslik, metin })} />}
+        {uyari && (
+          <Dialog title={uyari.baslik} onClose={() => setUyari(null)}>
+            <span style={{ fontSize: "calc(13.5px * var(--s))", lineHeight: 1.4, wordBreak: "break-all" }}>{uyari.metin}</span>
+            <button className="btn" onClick={() => setUyari(null)}>Tamam</button>
+          </Dialog>
+        )}
+      </>
+    );
+  }
   if (!me) return <AuthScreen onAuthed={(data) => setMe(normalize(data))} back={() => setAuthOpen(false)} />;
   if (me.role === "admin" && showAdmin) {
     return <AdminConsole data={adminData || {}} refresh={loadAdmin} logout={logout} onClose={() => setShowAdmin(false)} />;

@@ -320,7 +320,7 @@ export function Security({ onBack, onPassword, onTwoFactor, sessions, onRevoke, 
           <span style={{ flex: 1 }}>
             <b style={{ display: "block", fontSize: "calc(15.5px * var(--s))", fontWeight: 700 }}>{T("İki Adımlı Doğrulama")}</b>
             <s style={{ display: "block", textDecoration: "none", fontSize: "calc(12.5px * var(--s))", color: "var(--muted)", marginTop: 2 }}>
-              {twoFactor ? `${T("Açık")} · ${T(twoFactorMethod === 0 ? "SMS doğrulaması" : "Doğrulama uygulaması")}` : T("Kapalı")}
+              {twoFactor ? `${T("Açık")} · ${T("Doğrulama uygulaması")}` : T("Kapalı")}
             </s>
           </span>
           <Icon name="chevron" size={16} />
@@ -341,7 +341,7 @@ const Radio = ({ on }) => (
 
 export function TwoFactorPage({ onBack, twoFactor, twoFactorMethod, confirmOn, phone, onSave }) {
   const [enabled, setEnabled] = useState(twoFactor);
-  const [method, setMethod] = useState(twoFactorMethod);
+  const method = 1; // SMS kaldırıldı; tek yöntem doğrulama uygulaması.
   const [confirm, setConfirm] = useState(confirmOn);
 
   return (
@@ -362,18 +362,10 @@ export function TwoFactorPage({ onBack, twoFactor, twoFactorMethod, confirmOn, p
 
       <Section heading={T("DOĞRULAMA YÖNTEMİ")}>
         <SecRow
-          icon="message"
-          label={T("SMS Doğrulama")}
-          note={maskPhone(phone)}
-          tail={<Radio on={method === 0} />}
-          onClick={() => setMethod(0)}
-        />
-        <SecRow
           icon="phone"
           label={T("Doğrulama Uygulaması")}
           note={T("Google Authenticator, Microsoft Authenticator")}
-          tail={<Radio on={method === 1} />}
-          onClick={() => setMethod(1)}
+          tail={<Radio on />}
         />
       </Section>
 

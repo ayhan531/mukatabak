@@ -1,7 +1,7 @@
 // Hisseler — APK'daki ikinci sekmenin birebir karşılığı.
 import React, { useMemo, useState } from "react";
 import Icon from "./icons.jsx";
-import { SearchBox } from "./ui.jsx";
+import { SearchBox, LazyList } from "./ui.jsx";
 import { InstrumentRow } from "./Home.jsx";
 import { listFor, search, movers, BIST } from "./market.js";
 import { T } from "./lang.js";
@@ -33,9 +33,13 @@ const Group = ({ tone, title, items, openTrade }) => (
 export default function Stocks({ instruments, state, unread, onNotifications, openTrade }) {
   const [query, setQuery] = useState("");
   const stocks = useMemo(() => listFor(BIST, instruments), [instruments]);
-  const results = useMemo(() => search(query, stocks, 20), [query, stocks]);
+  const results = useMemo(() => search(query, stocks, 500), [query, stocks]);
   const up = useMemo(() => movers(stocks, true, 7), [stocks]);
   const down = useMemo(() => movers(stocks, false, 7), [stocks]);
+  const all = useMemo(
+    () => stocks.slice().sort((a, b) => String(a.symbol).localeCompare(String(b.symbol), "tr")),
+    [stocks],
+  );
 
   return (
     <div className="page">
@@ -56,12 +60,10 @@ export default function Stocks({ instruments, state, unread, onNotifications, op
             <span className="count">{results.length} {T("hisse")}</span>
           </div>
           {results.length ? (
-            results.map((item, index) => (
-              <React.Fragment key={item.code}>
-                {index > 0 && <div className="hline" />}
-                <InstrumentRow item={item} onClick={() => openTrade(item)} />
-              </React.Fragment>
-            ))
+            <LazyList
+              items={results}
+              render={(item) => <InstrumentRow key={item.code} item={item} onClick={() => openTrade(item)} />}
+            />
           ) : (
             <div className="mk-empty">
               <Icon name="search" size={30} />
@@ -80,6 +82,17 @@ export default function Stocks({ instruments, state, unread, onNotifications, op
         <>
           <Group tone="up" title={T("En Çok Yükselenler")} items={up} openTrade={openTrade} />
           <Group tone="down" title={T("En Çok Düşenler")} items={down} openTrade={openTrade} />
+          {/* Aramaya gerek kalmadan BIST'teki bütün hisseler listelenir. */}
+          <section className="mk-card">
+            <div className="mk-card-head">
+              <h2>{T("Tüm Hisseler")}</h2>
+              <span className="count">{all.length} {T("hisse")}</span>
+            </div>
+            <LazyList
+              items={all}
+              render={(item) => <InstrumentRow key={item.code} item={item} onClick={() => openTrade(item)} />}
+            />
+          </section>
         </>
       )}
     </div>

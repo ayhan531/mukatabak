@@ -17,3 +17,6 @@ geliştirilmesi gerekenler.txt
 shots/
 _sync.bundle
 *.patch
+
+# test veritabanlari
+tools/test_*.db

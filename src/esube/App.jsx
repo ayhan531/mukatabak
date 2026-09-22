@@ -1,7 +1,7 @@
 // E-Şube kabuğu — MainPage.xaml.cs (Navigate / BuildNavigation / BrandBar / Overlay) karşılığı.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./icons.jsx";
-import { Symbol, SearchBox, Sheet, Dialog, Divided, Overlay } from "./ui.jsx";
+import { Symbol, SearchBox, Sheet, Dialog, Divided, Overlay, LazyList } from "./ui.jsx";
 import Home, { InstrumentRow } from "./Home.jsx";
 import Stocks from "./Stocks.jsx";
 import Stock from "./Stock.jsx";
@@ -16,7 +16,8 @@ import {
 } from "./Subpages.jsx";
 import { api, usePref, useMarket, useNews, usePortfolio, useNotifications, useHoldings, readPref, writePref } from "./store.js";
 import { savedAccounts, forgetAccount, setPendingTc } from "./accounts.js";
-import { canInstall, onInstallChange, promptInstall, isStandalone, isApple, iosBrowser, iosToolbarAtBottom, pushState, enablePush, disablePush, syncPushPrefs } from "./pwa.js";
+import { useGeriTusu } from "./geri.js";
+import { canInstall, onInstallChange, promptInstall, isStandalone, isApple, iosBrowser, iosToolbarAtBottom, uygulamaIciTarayici, tarayicidaAc, kurulumSemasi, adresiKopyala, kurulumAdresi, kurulumIstendi, pushState, enablePush, disablePush, syncPushPrefs } from "./pwa.js";
 import { listFor, search, money, monogram as monogramOf, BIST, TRADABLE_MARKETS, MARKET_NAMES, parseAmount } from "./market.js";
 import { T, setLangIndex, LANG_CODES } from "./lang.js";
 
@@ -25,6 +26,22 @@ export const APP_VERSION = "2.5.1";
 // Ayarlar > Tema — APK'daki arka plan renk dünyaları.
 export const SKIN_NAMES = ["Klasik", "Nane", "Şeftali", "Gök", "Krem", "Pembe", "Lavanta"];
 export const SKIN_KEYS = ["klasik", "nane", "seftali", "gok", "krem", "pembe", "lavanta"];
+
+/** Bağlantı durumu; çevrimdışıyken kullanıcıya şerit gösterilir. */
+function useOnline() {
+  const [online, setOnline] = useState(() => navigator.onLine !== false);
+  useEffect(() => {
+    const ac = () => setOnline(true);
+    const kapat = () => setOnline(false);
+    window.addEventListener("online", ac);
+    window.addEventListener("offline", kapat);
+    return () => {
+      window.removeEventListener("online", ac);
+      window.removeEventListener("offline", kapat);
+    };
+  }, []);
+  return online;
+}
 
 // APK'da kimlik bilgileri maskeli görünür: "1•• ••• ••• 46".
 const maskTc = (value) => {
@@ -51,7 +68,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const [watchlist, setWatchlist] = usePref("watchlist", ["TUPRS", "THYAO", "ASELS"]);
   const [confirmOn, setConfirmOn] = usePref("confirm", true);
   const [twoFactor, setTwoFactor] = usePref("twofactor", true);
-  const [twoFactorMethod, setTwoFactorMethod] = usePref("twofactor-method", 0);
+  const [twoFactorMethod, setTwoFactorMethod] = usePref("twofactor-method", 1);
   const [noticeChannel, setNoticeChannel] = usePref("notice-channel", 0);
 
   // Dil, çizimden önce kurulur ki T() bu turda doğru karşılığı versin.
@@ -131,11 +148,17 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
         setOverlay((mevcut) => mevcut || { kind: "push-prompt" });
         return;
       }
+      // Bağlantıya "?kur=1" ile gelindi: kullanıcı kurulmak üzere buraya
+      // yönlendirildi, ipucu sayacına bakmadan kurulum ekranı açılır.
+      if (kurulumIstendi()) {
+        setOverlay((mevcut) => mevcut || { kind: "install" });
+        return;
+      }
       if (readPref("install-hint", false) === true) return;
-      if (!canInstall() && !isApple()) return;
+      if (!canInstall() && !isApple() && !uygulamaIciTarayici()) return;
       writePref("install-hint", true);
       setOverlay((mevcut) => mevcut || { kind: "install" });
-    }, 2500);
+    }, kurulumIstendi() ? 400 : 2500);
     return () => clearTimeout(zaman);
   }, []);
 
@@ -156,6 +179,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   }, []);
 
   /* ---- gezinme ---- */
+  const online = useOnline();
   const [tab, setTab] = useState(0);
   const [portfolioTab, setPortfolioTab] = useState(0);
   const [portfolioHidden, setPortfolioHidden] = useState(false);
@@ -176,6 +200,14 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const [notice, setNotice] = useState(null);
   const [tradeKind, setTradeKind] = useState(0);
   const [pendingOrder, setPendingOrder] = useState(null);
+
+  /* Geri tuşu: önce açık katmanı, sonra alt sayfayı, sonra ana sayfayı
+     kapatır; siteden ancak ana sayfadayken çıkar. */
+  const geriDerinlik = (overlay ? 1 : 0) + (tab !== 0 ? 1 : 0);
+  useGeriTusu(geriDerinlik > 0, () => {
+    if (overlay) { setOverlay(null); return; }
+    if (tab !== 0) { go(returnTo && returnTo !== tab ? returnTo : 0); return; }
+  });
   const [orderResult, setOrderResult] = useState(null);
 
   const showNotice = (title, text) => setNotice({ title: T(title), text: T(text) });
@@ -478,6 +510,12 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
 
   return (
     <div className="esube">
+      {!online && (
+        <div className="offline-bar" role="status">
+          <Icon name="info" size={15} />
+          {T("Çevrimdışısın · son bilinen veriler gösteriliyor")}
+        </div>
+      )}
       <nav className="sidebar">
         <div className="brandmark">Mukatabak<i>+</i></div>
         {NAV.map((item, index) => (
@@ -585,6 +623,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
           deposit={overlay.deposit}
           available={available}
           bankAccounts={bankAccounts}
+          me={me}
           onClose={() => setOverlay(null)}
           onDone={(message) => { setOverlay(null); portfolio.reload(); showNotice("İşlem tamamlandı", message); }}
         />
@@ -727,42 +766,100 @@ function NotificationsCard({ items, onClose }) {
 function StockPicker({ instruments, marketTab, watchlist, onClose, onPick }) {
   const [query, setQuery] = useState("");
   const list = useMemo(() => listFor(marketTab, instruments), [marketTab, instruments]);
-  const shown = query.trim()
-    ? search(query, list, 20)
-    : watchlist.map((code) => list.find((item) => item.code === code)).filter(Boolean);
+  // Arama yazılmadan da tüm hisseler görünür; takiptekiler en üste alınır.
+  const shown = useMemo(() => {
+    if (query.trim()) return search(query, list, 40);
+    const takipte = watchlist.map((code) => list.find((item) => item.code === code)).filter(Boolean);
+    const kodlar = new Set(takipte.map((item) => item.code));
+    return [...takipte, ...list.filter((item) => !kodlar.has(item.code))];
+  }, [query, list, watchlist]);
   return (
-    <Sheet title={T("Hisse seç")} onClose={onClose}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <SearchBox placeholder={T("Hisse adı veya sembol")} value={query} onChange={setQuery} />
-        {shown.length ? (
-          <Divided>{shown.map((item) => <InstrumentRow key={item.code} item={item} onClick={() => onPick(item)} />)}</Divided>
-        ) : (
-          <span style={{ fontSize: "calc(13px * var(--s))", color: "var(--muted)" }}>{T("Sonuç bulunamadı.")}</span>
-        )}
+    <Sheet title={T("Hisse Ara")} onClose={onClose}>
+      <div className="picker-body">
+        <SearchBox placeholder={T("Hisse kodu veya adı yazın…")} value={query} onChange={setQuery} />
+        <span className="picker-count">{shown.length} {T("hisse")}</span>
+        <div className="picker-list">
+          {shown.length ? (
+            <LazyList items={shown} render={(item) => <InstrumentRow key={item.code} item={item} onClick={() => onPick(item)} />} />
+          ) : (
+            <span style={{ fontSize: "calc(13px * var(--s))", color: "var(--muted)" }}>{T("Sonuç bulunamadı.")}</span>
+          )}
+        </div>
       </div>
     </Sheet>
   );
 }
 
-function TransferSheet({ deposit, available, bankAccounts, onClose, onDone }) {
+/** Panoya kopyalar; clipboard yoksa eski yöntemle dener. */
+const panoyaKopyala = async (metin) => {
+  try {
+    await navigator.clipboard.writeText(metin);
+    return true;
+  } catch {
+    try {
+      const alan = document.createElement("textarea");
+      alan.value = metin;
+      alan.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(alan);
+      alan.select();
+      const oldu = document.execCommand("copy");
+      alan.remove();
+      return oldu;
+    } catch {
+      return false;
+    }
+  }
+};
+
+function KopyaSatiri({ label, value, vurgu }) {
+  const [kopyalandi, setKopyalandi] = useState(false);
+  if (!value) return null;
+  const kopyala = async () => {
+    if (await panoyaKopyala(value)) {
+      setKopyalandi(true);
+      setTimeout(() => setKopyalandi(false), 1600);
+    }
+  };
+  return (
+    <div className={vurgu ? "bank-line accent" : "bank-line"}>
+      <span className="bank-copy">
+        <label>{label}</label>
+        <strong>{value}</strong>
+      </span>
+      <button className="bank-copy-btn" onClick={kopyala} aria-label={T("Kopyala")}>
+        <Icon name={kopyalandi ? "check" : "copy"} size={17} />
+      </button>
+    </div>
+  );
+}
+
+function TransferSheet({ deposit, available, bankAccounts, me, onClose, onDone }) {
   const [amountText, setAmountText] = useState("");
-  const [holder, setHolder] = useState("");
+  const [holder, setHolder] = useState(me?.full_name || "");
   const [bank, setBank] = useState("");
   const [iban, setIban] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const aktifHesaplar = (bankAccounts || []).filter((hesap) => Number(hesap.is_active ?? 1) === 1);
+
   const submit = async () => {
     const value = parseAmount(amountText);
     if (!Number.isFinite(value) || value <= 0) { setError(T("Geçerli bir tutar gir.")); return; }
+    if (!deposit) {
+      if (!holder.trim()) { setError(T("Hesap adını gir.")); return; }
+      if (!bank.trim()) { setError(T("Banka adını gir.")); return; }
+      if (iban.replace(/\s/g, "").length < 26) { setError(T("Geçerli bir IBAN gir.")); return; }
+      if (value > available) { setError(T("Çekilebilir bakiyeden fazla tutar girdin.")); return; }
+    }
     setBusy(true);
     setError("");
     try {
       const payload = deposit
-        ? { request_type: "deposit", amount: value, account_ref: bankAccounts[0]?.iban || "" }
-        : { request_type: "withdraw", amount: value, account_holder: holder, bank_name: bank, iban };
+        ? { request_type: "deposit", amount: value, account_ref: aktifHesaplar[0]?.iban || "" }
+        : { request_type: "withdraw", amount: value, account_holder: holder.trim(), bank_name: bank.trim(), iban: iban.replace(/\s/g, "") };
       await api("/api/money-requests", { method: "POST", body: JSON.stringify(payload) });
-      onDone(deposit ? "Para yatırma talebin alındı." : "Para çekme talebin alındı.");
+      onDone(deposit ? "Para yatırma bildirimin alındı." : "Para çekme talebin alındı.");
     } catch (problem) {
       setError(problem.message);
     } finally {
@@ -771,37 +868,66 @@ function TransferSheet({ deposit, available, bankAccounts, onClose, onDone }) {
   };
 
   return (
-    <Sheet title={T(deposit ? "Para yatır" : "Para çek")} onClose={onClose}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <span style={{ fontSize: "calc(14px * var(--s))", color: "var(--muted)" }}>Bakiye · {money(available)}</span>
-        <div className="card" style={{ background: "var(--soft)", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: "calc(23px * var(--s))", fontWeight: 700, color: "var(--purple)" }}>₺</span>
-          <input
-            inputMode="decimal"
-            value={amountText}
-            onChange={(event) => setAmountText(event.target.value)}
-            placeholder="0,00"
-            style={{ fontSize: "calc(25px * var(--s))", width: "100%" }}
-          />
-        </div>
+    <Sheet title={T(deposit ? "TL Yükle" : "TL Çek")} onClose={onClose}>
+      <div className="tl-sheet">
         {deposit ? (
-          bankAccounts[0] && (
-            <div className="sec-card" style={{ padding: "2px 14px" }}>
-              <div className="info-row">
-                <span className="copy"><strong>{bankAccounts[0].bank_name}</strong><span>{bankAccounts[0].iban}</span></span>
-                <span /><span />
-              </div>
+          <>
+            <span className="tl-note">{T("Aşağıdaki hesaplardan birine havale/EFT yapın")}</span>
+            <div className="tl-banks">
+              {aktifHesaplar.map((hesap) => (
+                <div className="bank-card" key={hesap.id || hesap.iban}>
+                  <div className="bank-head">{hesap.bank_name}</div>
+                  <KopyaSatiri label={T("Hesap Sahibi")} value={hesap.account_holder} />
+                  <KopyaSatiri label="IBAN" value={hesap.iban} />
+                  <KopyaSatiri label={T("Açıklama")} value={hesap.description} vurgu />
+                </div>
+              ))}
+              {!aktifHesaplar.length && (
+                <div className="referral-note">
+                  <Icon name="info" size={22} color="var(--muted)" />
+                  <span>{T("Şu anda tanımlı bir yatırım hesabı yok. Referansınız ile iletişime geçiniz.")}</span>
+                </div>
+              )}
             </div>
-          )
+
+            <label className="tl-field">
+              <span>{T("Gönderilen Tutar")} (₺)</span>
+              <input inputMode="decimal" value={amountText} placeholder="0,00"
+                onChange={(event) => setAmountText(event.target.value)} />
+            </label>
+            <span className="tl-hint">{T("5-15 dakika içerisinde hesabınıza yansır.")}</span>
+          </>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div className="field"><label>{T("Hesap sahibi")}</label><div className="box"><input value={holder} onChange={(event) => setHolder(event.target.value)} placeholder={T("Ad Soyad")} style={{ height: 42, width: "100%", fontSize: "calc(15px * var(--s))" }} /></div></div>
-            <div className="field"><label>{T("Banka")}</label><div className="box"><input value={bank} onChange={(event) => setBank(event.target.value)} placeholder={T("Banka adı")} style={{ height: 42, width: "100%", fontSize: "calc(15px * var(--s))" }} /></div></div>
-            <div className="field"><label>IBAN</label><div className="box"><input value={iban} onChange={(event) => setIban(event.target.value)} placeholder="TR.." style={{ height: 42, width: "100%", fontSize: "calc(15px * var(--s))" }} /></div></div>
-          </div>
+          <>
+            <div className="tl-balance">
+              <span>{T("ÇEKİLEBİLİR BAKİYE")}</span>
+              <strong>{money(available)}</strong>
+            </div>
+            <label className="tl-field">
+              <span>{T("Hesap Adı")}</span>
+              <input value={holder} placeholder={T("Ad Soyad")} onChange={(event) => setHolder(event.target.value)} />
+            </label>
+            <label className="tl-field">
+              <span>{T("Banka Adı")}</span>
+              <input value={bank} placeholder={T("Banka adını giriniz")} onChange={(event) => setBank(event.target.value)} />
+            </label>
+            <label className="tl-field">
+              <span>IBAN</span>
+              <input value={iban} placeholder="TR00 0000 0000 0000 0000 0000 00" inputMode="text"
+                onChange={(event) => setIban(event.target.value.toUpperCase())} />
+            </label>
+            <label className="tl-field">
+              <span>{T("Çekim Tutarı")} (₺)</span>
+              <input inputMode="decimal" value={amountText} placeholder="0,00"
+                onChange={(event) => setAmountText(event.target.value)} />
+            </label>
+          </>
         )}
         {error && <span className="trade-error">{error}</span>}
-        <button className="btn" disabled={busy} onClick={submit}>{T(deposit ? "Para yatır" : "Para çek")}</button>
+        <button className="btn" disabled={busy} onClick={submit}>
+          {T(busy ? "Gönderiliyor…" : deposit ? "Bildirimi Gönder" : "Çek")}
+        </button>
+        <button className="btn ghost" onClick={onClose}>{T("İptal")}</button>
       </div>
     </Sheet>
   );
@@ -840,10 +966,12 @@ function PushPrompt({ onClose, onNotice }) {
 
 /* ---------- Uygulamayı yükle ---------- */
 
-function InstallSheet({ onClose, onNotice }) {
+export function InstallSheet({ onClose, onNotice }) {
   const [kurulabilir, setKurulabilir] = useState(canInstall());
   const [kurulu, setKurulu] = useState(isStandalone());
   const [bekliyor, setBekliyor] = useState(false);
+  const [kopyalandi, setKopyalandi] = useState(false);
+  const icTarayici = uygulamaIciTarayici();
 
   useEffect(() => onInstallChange(() => {
     setKurulabilir(canInstall());
@@ -858,11 +986,22 @@ function InstallSheet({ onClose, onNotice }) {
     if (sonuc === "accepted") {
       onClose();
       onNotice("Uygulama eklendi", "Mukatabak artık ana ekranınızda. Kısayoldan açtığınızda doğrudan e-şubeye girersiniz.");
+      return;
+    }
+    // Tarayıcı kurulum teklifini vermediyse düğme sessiz kalmasın; nedenini söyle.
+    if (sonuc === "yok") {
+      onNotice(
+        "Tarayıcıdan ekleyin",
+        uygulamaIciTarayici()
+          ? "Bu sayfa başka bir uygulamanın içinde açıldı. Sağ üstteki ⋮ menüsünden “Tarayıcıda aç” deyip Chrome'da tekrar deneyin."
+          : "Chrome bu sayfada kurulum penceresini vermedi. Sağ üstteki ⋮ menüsünden “Uygulamayı yükle” ya da “Ana ekrana ekle” seçeneğine dokunun.",
+      );
     }
   };
 
   const altCubuk = iosToolbarAtBottom();
   const tarayici = iosBrowser();
+  const androidMi = /Android/i.test(navigator.userAgent || "");
   const elmaAdimlari = [
     ["share", "Paylaş düğmesine dokunun", altCubuk ? "Ekranın altındaki ortadaki simge" : "Adres çubuğunun sağındaki simge"],
     ["addhome", "“Ana Ekrana Ekle”yi seçin", "Listeyi biraz yukarı kaydırın"],
@@ -876,11 +1015,45 @@ function InstallSheet({ onClose, onNotice }) {
           <img src="/icons/icon-192.png" alt="Mukatabak" width={64} height={64} />
           <div className="install-copy">
             <strong>Mukatabak Yatırım</strong>
-            <span>{T("Ana ekrandan tek dokunuşla kendi e-şubeniz açılır.")}</span>
           </div>
         </div>
 
-        {kurulu ? (
+        {!kurulu && icTarayici && !kurulabilir ? (
+          /* Telegram/Instagram gibi bir uygulamanın içindeyiz. Kurulum iznini
+             yalnızca Chrome/Safari veriyor; tek dokunuşla oraya geçiliyor ve
+             açılan sayfada bu ekran kendiliğinden geliyor. */
+          <>
+            <div className="referral-note">
+              <Icon name="info" size={22} color="var(--purple)" />
+              <span>{T(isApple()
+                ? "Bu sayfa bir uygulamanın içinde açıldı. Aşağıdaki düğme Safari'yi açar ve kurulum orada kendiliğinden başlar."
+                : "Bu sayfa bir uygulamanın içinde açıldı. Aşağıdaki düğme Chrome'u açar ve kurulum orada kendiliğinden başlar.")}</span>
+            </div>
+            {/* Bağlantı olarak veriliyor: uygulama içi tarayıcılar dokunmayla
+                açılan şemaları geçirir, JavaScript ile yapılanı engelleyebilir. */}
+            <a
+              className="btn"
+              href={kurulumSemasi()}
+              rel="noreferrer"
+              onClick={() => { setTimeout(() => { tarayicidaAc(); }, 900); }}
+            >
+              {T(isApple() ? "Safari'de aç ve kur" : "Chrome'da aç ve kur")}
+            </a>
+            <button
+              className="btn ghost"
+              onClick={async () => {
+                const oldu = await adresiKopyala();
+                setKopyalandi(oldu);
+                if (!oldu) onNotice("Kopyalanamadı", kurulumAdresi());
+              }}
+            >
+              {T(kopyalandi ? "Bağlantı kopyalandı" : "Bağlantıyı kopyala")}
+            </button>
+            <span style={{ fontSize: "calc(12px * var(--s))", color: "var(--muted)", lineHeight: 1.4 }}>
+              {T("Düğme çalışmazsa sağ üstteki menüden “Tarayıcıda aç” diyebilirsiniz; adres aynı kalır.")}
+            </span>
+          </>
+        ) : kurulu ? (
           <>
             <div className="referral-note">
               <Icon name="check" size={22} color="var(--pos)" />
@@ -923,15 +1096,32 @@ function InstallSheet({ onClose, onNotice }) {
               </div>
             )}
           </>
+        ) : androidMi ? (
+          <>
+            {uygulamaIciTarayici() && (
+              <div className="referral-note">
+                <Icon name="info" size={22} color="var(--muted)" />
+                <span>{T("Bu sayfa başka bir uygulamanın içinde açık. Önce sağ üstteki ⋮ → “Tarayıcıda aç” deyin; kurulum yalnızca Chrome'da çalışır.")}</span>
+              </div>
+            )}
+            <ol className="ios-steps">
+              <li>
+                <span className="ios-no">1</span>
+                <span className="ios-glyph"><Icon name="android" size={22} /></span>
+                <span className="ios-copy"><strong>{T("Sağ üstteki ⋮ menüsünü aç")}</strong><span>{T("Chrome'un üç nokta menüsü")}</span></span>
+              </li>
+              <li>
+                <span className="ios-no">2</span>
+                <span className="ios-glyph"><Icon name="download" size={22} /></span>
+                <span className="ios-copy"><strong>{T("“Uygulamayı yükle”ye dokun")}</strong><span>{T("“Ana ekrana ekle” olarak da görünebilir")}</span></span>
+              </li>
+            </ol>
+            <button className="btn" disabled={bekliyor} onClick={yukle}>{T(bekliyor ? "Kuruluyor…" : "Ana ekrana ekle")}</button>
+          </>
         ) : (
           <>
             <div className="sec-card">
               <Divided>
-                <div className="sec-row">
-                  <span className="disc"><Icon name="android" size={20} /></span>
-                  <span className="copy"><strong>Android</strong><span>{T("Chrome menüsü → “Uygulamayı yükle”")}</span></span>
-                  <span /><span />
-                </div>
                 <div className="sec-row">
                   <span className="disc"><Icon name="laptop" size={20} /></span>
                   <span className="copy"><strong>{T("Bilgisayar")}</strong><span>{T("Adres çubuğundaki yükle simgesi ya da menü → “Yükle”")}</span></span>

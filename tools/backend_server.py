@@ -26,6 +26,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from email.message import EmailMessage
 from news_feed import latest_news
+from market_news import sekme_haberleri as fotolu_sekme_haberleri, sirketleri_tanit
 import threading
 import webpush
 
@@ -243,6 +244,11 @@ def valid_turkish_identity_number(value: str) -> bool:
     tenth = ((sum(digits[0:9:2]) * 7) - sum(digits[1:8:2])) % 10
     eleventh = sum(digits[:10]) % 10
     return digits[9] == tenth and digits[10] == eleventh
+
+
+def identity_number_is_real(value: str) -> bool:
+    """Algoritmaya uyan ama gerçek olamayacak kalıpları da eler (11111111110)."""
+    return valid_turkish_identity_number(value) and len(set(value[:10])) > 1
 
 
 def totp_code(secret: str, timestamp: int | None = None) -> str:
@@ -489,6 +495,19 @@ def init_db() -> None:
               updated_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS instrument_prices (
+              symbol TEXT PRIMARY KEY,
+              price REAL NOT NULL,
+              change_pct REAL NOT NULL DEFAULT 0,
+              updated_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS instrument_names (
+              symbol TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS stock_descriptions (
               symbol TEXT PRIMARY KEY,
               description TEXT NOT NULL DEFAULT '',
@@ -679,7 +698,7 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE account_no IS NULL OR account_no=''")
     conn.execute("UPDATE users SET account_no='GM' || substr(account_no, 3) WHERE account_no LIKE 'FY%'")
     conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'AU%' OR account_no LIKE 'PM%' OR account_no LIKE 'GM%'")
-    # Ottoman'dan devralinan hesap numaralari Mukatabak on ekine tasinir.
+    # Eski OT on ekli hesap numaralari MK on ekine tasinir.
     conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'OT%'")
     conn.execute("UPDATE system_bank_accounts SET is_active=0 WHERE REPLACE(iban, ' ', '') LIKE 'TR00%'")
     conn.execute("UPDATE orders SET gross_total=total WHERE gross_total<=0")
@@ -798,6 +817,7 @@ def seed_system_bank_accounts(conn: sqlite3.Connection) -> None:
 def seed_system_settings(conn: sqlite3.Connection) -> None:
     defaults = {
         "trading_enabled": "1",
+        "market_feed_enabled": "1",
         "maintenance_mode": "0",
         "price_simulation": "0",
         "t2_enabled": "0",
@@ -1028,6 +1048,21 @@ def account_for(conn: sqlite3.Connection, user_id: int) -> dict:
     return dict(row)
 
 
+def apply_manual_prices(conn: sqlite3.Connection) -> None:
+    """Yöneticinin panelden girdiği fiyatlar borsadan geleni ezer."""
+    conn.execute(
+        "UPDATE market_cache SET"
+        " price=(SELECT m.price FROM instrument_prices m WHERE m.symbol=market_cache.symbol),"
+        " change_pct=(SELECT m.change_pct FROM instrument_prices m WHERE m.symbol=market_cache.symbol)"
+        " WHERE symbol IN (SELECT symbol FROM instrument_prices)"
+    )
+
+
+def market_feed_enabled(conn: sqlite3.Connection) -> bool:
+    """Borsadan fiyat çekme açık mı? Kapalıyken fiyatlar olduğu gibi kalır."""
+    return settings_map(conn).get("market_feed_enabled", "1") != "0"
+
+
 def market_from_cache(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         """
@@ -1246,6 +1281,11 @@ def refresh_company_metadata(conn: sqlite3.Connection) -> None:
         """,
         metadata,
     )
+    # Yöneticinin panelden verdiği adlar, borsadan gelen adı ezer.
+    conn.execute(
+        "UPDATE market_cache SET name=(SELECT n.name FROM instrument_names n WHERE n.symbol=market_cache.symbol)"
+        " WHERE symbol IN (SELECT symbol FROM instrument_names)"
+    )
     conn.execute(
         "INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES ('company_meta_version', ?, ?)"
         " ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, updated_at=excluded.updated_at",
@@ -1255,11 +1295,18 @@ def refresh_company_metadata(conn: sqlite3.Connection) -> None:
 
 
 def refresh_market(conn: sqlite3.Connection) -> list[dict]:
+    if not market_feed_enabled(conn):
+        # Panelden "borsadan fiyat çekmeyi durdur" denmiş: son fiyatlar dondurulur.
+        apply_manual_prices(conn)
+        conn.commit()
+        return market_from_cache(conn)
     latest = conn.execute("SELECT MAX(updated_at) AS updated FROM market_cache").fetchone()["updated"] or 0
     status_row = conn.execute("SELECT updated_at FROM market_status WHERE id=1").fetchone()
     status_updated = status_row["updated_at"] if status_row else 0
     if now() - int(max(latest, status_updated)) < MARKET_REFRESH_SECONDS:
         refresh_company_metadata(conn)
+        apply_manual_prices(conn)
+        conn.commit()
         return market_from_cache(conn)
     last_error = ""
     for url in dict.fromkeys(MARKET_URLS):
@@ -1296,12 +1343,15 @@ def refresh_market(conn: sqlite3.Connection) -> list[dict]:
                 save_market_status(conn, url, True, len(quotes), "")
                 conn.commit()
                 refresh_company_metadata(conn)
+                apply_manual_prices(conn)
+                conn.commit()
                 return market_from_cache(conn)
             last_error = "Kaynak veri döndürdü ama sembol ayrıştırılamadı"
         except Exception as exc:
             last_error = str(exc)
     count = conn.execute("SELECT COUNT(*) c FROM market_cache").fetchone()["c"]
     save_market_status(conn, "fallback-cache", False, count, last_error or "Canlı kaynak okunamadı")
+    apply_manual_prices(conn)
     conn.commit()
     return market_from_cache(conn)
 
@@ -1511,6 +1561,50 @@ MARKET_NEWS_CACHE: dict[int, dict] = {}
 MARKET_NEWS_REFRESH_SECONDS = int(os.environ.get("MARKET_NEWS_REFRESH_SECONDS", "600"))
 NEWS_TOOL_WORDS = ("hesaplama", "cevirici", "çevirici", "converter", "hesapla")
 
+# Bing, "BIST 30" sorgusunda Almanca "bist" fiiliyle eşleşen magazin haberlerini
+# de döndürüyor; Çince/İngilizce başlıklar da karışıyor. Üç kapı ile eleniyor:
+# alfabe, finans konusu ve dil.
+NEWS_FINANCE_WORDS = (
+    "borsa", "bist", "hisse", "endeks", "temettü", "temettu", "halka arz", "fon",
+    "piyasa", "yatırım", "yatirim", "faiz", "döviz", "doviz", "dolar", "euro",
+    "kur", "altın", "altin", "tahvil", "viop", "spk", "kap", "portföy", "portfoy",
+    "sermaye", "banka", "enflasyon", "şirket", "sirket", "ihraç", "ihrac",
+    "menkul", "takasbank", "masak", "repo", "kâr", "kar payı", "zarar", "seans",
+    "lot", "emir", "tasfiye", "yatırımcı", "yatirimci", "gözaltı",
+)
+NEWS_FOREIGN_TOKENS = frozenset((
+    "und", "der", "die", "das", "dem", "den", "nicht", "wenn", "wer", "wirst",
+    "sie", "ihr", "dran", "mehr", "ein", "eine", "ist", "wird", "auch", "puder",
+    "the", "and", "for", "with", "from", "after", "says", "will", "that", "this",
+    "are", "was", "buys", "stocks", "market", "fund", "wealth", "you", "your",
+    "how", "why", "what", "new", "stem", "rout",
+))
+NON_LATIN_TEXT = re.compile(r"[\u0400-\u04FF\u0590-\u08FF\u3000-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]")
+
+
+def _fold_tr(value: str) -> str:
+    """Türkçe büyük harfleri doğru küçültür: İ→i, I→ı."""
+    return (value.replace("İ", "i").replace("I", "ı")
+            .replace("Ğ", "ğ").replace("Ş", "ş").replace("Ö", "ö")
+            .replace("Ü", "ü").replace("Ç", "ç").lower())
+
+
+def is_turkish_finance_news(title: str) -> bool:
+    """Başlık Türkçe bir finans haberi mi?"""
+    if not title:
+        return False
+    if NON_LATIN_TEXT.search(title):
+        return False
+    folded = _fold_tr(title)
+    if any(word in folded for word in NEWS_TOOL_WORDS) and "haber" not in folded:
+        return False
+    if not any(word in folded for word in NEWS_FINANCE_WORDS):
+        return False
+    tokens = set(re.split(r"[^0-9a-zçğıöşü]+", folded))
+    if len(tokens & NEWS_FOREIGN_TOKENS) >= 2:
+        return False
+    return True
+
 
 def _bing_image(image: str, template: str | None, width: int, height: int) -> str:
     """Bing küçük resim ucundan istenen boyutu ister (APK'daki Sized ile aynı)."""
@@ -1565,9 +1659,8 @@ def fetch_market_news(market: int) -> list[dict]:
         link = (node.findtext("link") or "").strip()
         if not title or not link:
             continue
-        folded = title.casefold()
-        if any(word in folded for word in NEWS_TOOL_WORDS) and "haber" not in folded:
-            continue   # "Döviz Hesaplama" gibi araç sayfaları haber değildir
+        if not is_turkish_finance_news(title):
+            continue   # yabancı dil, konu dışı ya da araç sayfası
         image = field(node, "Image")
         template = field(node, "ImageSize") or None
         published = (node.findtext("pubDate") or "").strip()
@@ -1588,15 +1681,56 @@ def fetch_market_news(market: int) -> list[dict]:
             "published_ts": stamp,
         })
     items.sort(key=lambda item: item["published_ts"], reverse=True)
-    return items
+    benzersiz: list[dict] = []
+    gorulen: set[str] = set()
+    for item in items:
+        anahtar = _fold_tr(item["title"])
+        if anahtar in gorulen:
+            continue
+        gorulen.add(anahtar)
+        benzersiz.append(item)
+    return benzersiz
+
+
+_SIRKET_TANITILDI = {"ts": 0}
+
+
+def tanit_sirketler() -> None:
+    """Haber modülüne borsadaki şirket adlarını verir; haberde geçen şirket
+    adından hangi endekse ait olduğu anlaşılıyor. Günde bir kez yeter."""
+    if now() - int(_SIRKET_TANITILDI["ts"]) < 86400:
+        return
+    try:
+        with connect_db() as conn:
+            satirlar = conn.execute("SELECT symbol, name FROM market_cache WHERE name <> ''").fetchall()
+        sirketleri_tanit({row["symbol"]: row["name"] for row in satirlar})
+        _SIRKET_TANITILDI["ts"] = now()
+    except Exception:              # tablo yoksa ya da okunamıyorsa haber akışı yine çalışsın
+        _SIRKET_TANITILDI["ts"] = now()
 
 
 def market_news(market: int) -> tuple[list[dict], bool]:
-    """Sekmenin haberleri ve canlı gelip gelmediği."""
+    """Sekmenin haberleri ve canlı gelip gelmediği.
+
+    Önce yayıncıların kendi RSS beslemeleri denenir: her haberin fotoğrafı
+    vardır ve sekmenin konusuna göre gruplanır. Beslemeler ulaşılamazsa Bing
+    akışına düşülür, o da olmazsa son bilinen liste verilir.
+    """
     cached = MARKET_NEWS_CACHE.get(market)
     if cached and cached["items"] and now() - int(cached["updated_at"]) < MARKET_NEWS_REFRESH_SECONDS:
         return cached["items"], True
-    items = fetch_market_news(market)
+
+    items: list[dict] = []
+    try:
+        tanit_sirketler()
+        items, _bilgi = fotolu_sekme_haberleri(market, en_az=14)
+    except Exception:            # ağ/ayrıştırma sorunu Bing yedeğini engellemesin
+        items = []
+    if not items:
+        items = [haber for haber in fetch_market_news(market) if haber.get("image_url")]
+    if not items:
+        items = fetch_market_news(market)
+
     if items:
         MARKET_NEWS_CACHE[market] = {"items": items, "updated_at": now()}
         return items, True
@@ -1893,6 +2027,20 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.api_admin_system_settings()
         if method == "POST" and path == "/api/admin/system-settings":
             return self.api_admin_save_system_settings()
+        if method == "GET" and path == "/api/admin/prices":
+            return self.api_admin_prices()
+        if method == "POST" and path == "/api/admin/prices":
+            return self.api_admin_save_price()
+        if method == "POST" and path == "/api/admin/market-feed":
+            return self.api_admin_feed_switch()
+        if method == "GET" and path == "/api/admin/stock-names":
+            return self.api_admin_stock_names()
+        if method == "POST" and path == "/api/admin/stock-names":
+            return self.api_admin_save_stock_name()
+        if method == "GET" and path == "/api/admin/audit":
+            return self.api_admin_audit()
+        if method == "POST" and path == "/api/admin/create-user":
+            return self.api_admin_create_user()
         if method == "GET" and path == "/api/admin/stock-descriptions":
             return self.api_admin_stock_descriptions()
         if method == "POST" and path == "/api/admin/stock-descriptions":
@@ -1919,8 +2067,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 return self.api_admin_bank_account_action(int(parts[3]))
             if len(parts) == 5 and parts[:3] == ["api", "admin", "documents"] and parts[3].isdigit():
                 return self.api_admin_document_action(int(parts[3]), parts[4])
+            if len(parts) == 5 and parts[:3] == ["api", "admin", "t2-settlements"] and parts[3].isdigit() and parts[4] == "delete":
+                return self.api_admin_delete_t2(int(parts[3]))
             if len(parts) == 4 and parts[:3] == ["api", "admin", "t2-settlements"] and parts[3].isdigit():
                 return self.api_admin_settle_t2(int(parts[3]))
+            if len(parts) == 5 and parts[:3] == ["api", "admin", "users"] and parts[3].isdigit() and parts[4] == "password":
+                return self.api_admin_set_password(int(parts[3]))
+            if len(parts) == 5 and parts[:3] == ["api", "admin", "users"] and parts[3].isdigit() and parts[4] == "delete":
+                return self.api_admin_delete_user(int(parts[3]))
             if len(parts) == 4 and parts[:3] == ["api", "admin", "users"] and parts[3].isdigit():
                 return self.api_admin_update_user(int(parts[3]))
             if len(parts) == 3 and parts == ["api", "admin", "balances"]:
@@ -2442,8 +2596,17 @@ class AppHandler(BaseHTTPRequestHandler):
             suitability_score = sum(max(0, min(3, int(suitability_answers[key]))) for key in numeric_answer_keys)
         except ValueError:
             suitability_score = -1
-        if not full_name or not valid_turkish_identity_number(tc) or not password_is_strong(password) or not phone:
-            raise HttpError(400, "Zorunlu kayıt bilgileri eksik")
+        # Hata mesajları ayrı ayrı: kullanıcı neyin yanlış olduğunu görsün.
+        if not full_name:
+            raise HttpError(400, "Ad soyad gerekli")
+        if len(tc) != 11:
+            raise HttpError(400, "T.C. kimlik numarası 11 haneli olmalı")
+        if not identity_number_is_real(tc):   # algoritma + 11111111110 gibi kalıplar
+            raise HttpError(400, "T.C. kimlik numarası geçersiz. Lütfen kimliğinizdeki numarayı girin.")
+        if not phone or len(re.sub(r"\D", "", phone)) < 10:
+            raise HttpError(400, "Telefon numarası eksik")
+        if not password_is_strong(password):
+            raise HttpError(400, "Şifre en az 10 karakter olmalı; büyük harf, küçük harf ve rakam içermeli")
         if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
             raise HttpError(400, "E-posta adresi geçersiz")
         if not all(accepted.values()):
@@ -2559,7 +2722,11 @@ class AppHandler(BaseHTTPRequestHandler):
             "market": market,
             "query": MARKET_NEWS_QUERIES[market],
             "items": items,
-            "meta": {"ok": live, "count": len(items), "source": "Bing Haberler"},
+            "meta": {
+                "ok": live,
+                "count": len(items),
+                "source": ", ".join(sorted({str(haber.get("source") or "") for haber in items} - {""})) or "Haber akışı",
+            },
         })
 
     def api_app_download(self) -> None:
@@ -3178,7 +3345,7 @@ class AppHandler(BaseHTTPRequestHandler):
         with connect_db() as conn:
             admin = self.require_admin(conn)
             self.require_admin_step_up(conn)
-            allowed_prefixes = ("trading_", "maintenance_", "credit_", "t2_", "commission_", "minimum_", "official_", "brand_", "ui_", "content_")
+            allowed_prefixes = ("trading_", "maintenance_", "credit_", "t2_", "commission_", "minimum_", "official_", "brand_", "ui_", "content_", "price_", "market_")
             for key, value in payload.items():
                 if not isinstance(key, str) or not key.startswith(allowed_prefixes):
                     continue
@@ -3356,6 +3523,273 @@ class AppHandler(BaseHTTPRequestHandler):
             audit(conn, admin["id"], "save_stock_description", "stock_description", None, {"symbol": symbol})
             conn.commit()
             self.json_response({"ok": True})
+
+    # ---------------- hisse adları ----------------
+
+    def api_admin_stock_names(self) -> None:
+        """Borsadaki tüm hisseler ve yöneticinin verdiği adlar."""
+        with connect_db() as conn:
+            self.require_admin(conn)
+            query = parse_qs(urlparse(self.path).query)
+            arama = (query.get("q") or [""])[0].strip().upper()
+            kosul, parametreler = "", []
+            if arama:
+                kosul = " WHERE m.symbol LIKE ? OR UPPER(m.name) LIKE ? "
+                parametreler = [f"%{arama}%", f"%{arama}%"]
+            rows = conn.execute(
+                "SELECT m.symbol, m.name, m.asset_class, n.name AS custom_name, n.updated_at AS custom_at"
+                " FROM market_cache m LEFT JOIN instrument_names n ON n.symbol=m.symbol"
+                + kosul +
+                " ORDER BY m.symbol ASC",
+                parametreler,
+            ).fetchall()
+            toplam = conn.execute("SELECT COUNT(*) c FROM market_cache").fetchone()["c"]
+            duzenlenen = conn.execute("SELECT COUNT(*) c FROM instrument_names").fetchone()["c"]
+            self.json_response({
+                "total": toplam,
+                "edited": duzenlenen,
+                "names": [{
+                    "symbol": row["symbol"],
+                    "name": row["name"] or row["symbol"],
+                    "asset_class": row["asset_class"],
+                    "custom": bool(row["custom_name"]),
+                    "updated_at": iso_time(row["custom_at"]) if row["custom_at"] else "",
+                } for row in rows],
+            })
+
+    def api_admin_save_stock_name(self) -> None:
+        payload = self.read_json()
+        symbol = re.sub(r"[^A-Z0-9]", "", str(payload.get("symbol", "")).upper())
+        name = str(payload.get("name", "")).strip()[:120]
+        if not symbol:
+            raise HttpError(400, "Hisse kodu gerekli")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            if not conn.execute("SELECT 1 FROM market_cache WHERE symbol=?", (symbol,)).fetchone():
+                raise HttpError(404, "Bu kodla bir enstrüman yok")
+            if name:
+                conn.execute(
+                    "INSERT INTO instrument_names (symbol, name, updated_at) VALUES (?, ?, ?)"
+                    " ON CONFLICT(symbol) DO UPDATE SET name=excluded.name, updated_at=excluded.updated_at",
+                    (symbol, name, now()),
+                )
+                conn.execute("UPDATE market_cache SET name=? WHERE symbol=?", (name, symbol))
+            else:
+                # Ad boş bırakıldı: borsadan gelen ada geri dönülür.
+                conn.execute("DELETE FROM instrument_names WHERE symbol=?", (symbol,))
+            audit(conn, admin["id"], "save_stock_name", "instrument", None, {"symbol": symbol, "name": name})
+            conn.commit()
+            self.json_response({"ok": True, "symbol": symbol, "name": name})
+
+    # ---------------- piyasa kontrolü ----------------
+
+    def api_admin_prices(self) -> None:
+        """Enstrümanlar, canlı fiyatları ve elle verilmiş fiyatlar."""
+        query = parse_qs(urlparse(self.path).query)
+        arama = (query.get("q") or [""])[0].strip().upper()
+        with connect_db() as conn:
+            self.require_admin(conn)
+            kosul, parametreler = "", []
+            if arama:
+                kosul = " WHERE m.symbol LIKE ? OR UPPER(m.name) LIKE ? "
+                parametreler = [f"%{arama}%", f"%{arama}%"]
+            rows = conn.execute(
+                "SELECT m.symbol, m.name, m.price, m.change_pct, m.asset_class, m.updated_at,"
+                " e.price AS manual_price, e.change_pct AS manual_change, e.updated_at AS manual_at"
+                " FROM market_cache m LEFT JOIN instrument_prices e ON e.symbol=m.symbol"
+                + kosul + " ORDER BY m.symbol ASC LIMIT 1000",
+                parametreler,
+            ).fetchall()
+            elle = conn.execute("SELECT COUNT(*) c FROM instrument_prices").fetchone()["c"]
+            ayarlar = settings_map(conn)
+            self.json_response({
+                "feed_enabled": ayarlar.get("market_feed_enabled", "1") != "0",
+                "manual_count": elle,
+                "total": conn.execute("SELECT COUNT(*) c FROM market_cache").fetchone()["c"],
+                "status": market_status(conn),
+                "prices": [{
+                    "symbol": row["symbol"],
+                    "name": row["name"] or row["symbol"],
+                    "price": row["price"],
+                    "change_pct": row["change_pct"],
+                    "asset_class": row["asset_class"],
+                    "manual": row["manual_price"] is not None,
+                    "updated_at": iso_time(row["manual_at"] or row["updated_at"]),
+                } for row in rows],
+            })
+
+    def api_admin_save_price(self) -> None:
+        """Bir enstrümanın fiyatını elle belirler; boş fiyat canlıya döndürür."""
+        payload = self.read_json()
+        symbol = re.sub(r"[^A-Z0-9]", "", str(payload.get("symbol", "")).upper())
+        ham_fiyat = str(payload.get("price", "")).strip().replace(".", "").replace(",", ".")
+        ham_degisim = str(payload.get("change_pct", "")).strip().replace(",", ".")
+        if not symbol:
+            raise HttpError(400, "Hisse kodu gerekli")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            self.require_admin_step_up(conn)
+            satir = conn.execute("SELECT * FROM market_cache WHERE symbol=?", (symbol,)).fetchone()
+            if not satir:
+                raise HttpError(404, "Bu kodla bir enstrüman yok")
+            if ham_fiyat == "":
+                conn.execute("DELETE FROM instrument_prices WHERE symbol=?", (symbol,))
+                audit(conn, admin["id"], "reset_price", "instrument", None, {"symbol": symbol})
+                conn.commit()
+                return self.json_response({"ok": True, "symbol": symbol, "manual": False})
+            try:
+                fiyat = float(ham_fiyat)
+                degisim = float(ham_degisim) if ham_degisim else 0.0
+            except ValueError:
+                raise HttpError(400, "Fiyat sayı olmalı")
+            if not (0 < fiyat <= 10_000_000):
+                raise HttpError(400, "Fiyat 0 ile 10.000.000 arasında olmalı")
+            conn.execute(
+                "INSERT INTO instrument_prices (symbol, price, change_pct, updated_at) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(symbol) DO UPDATE SET price=excluded.price, change_pct=excluded.change_pct, updated_at=excluded.updated_at",
+                (symbol, fiyat, degisim, now()),
+            )
+            conn.execute("UPDATE market_cache SET price=?, change_pct=?, updated_at=? WHERE symbol=?", (fiyat, degisim, now(), symbol))
+            audit(conn, admin["id"], "set_price", "instrument", None, {"symbol": symbol, "price": fiyat})
+            conn.commit()
+            self.json_response({"ok": True, "symbol": symbol, "price": fiyat, "manual": True})
+
+    def api_admin_feed_switch(self) -> None:
+        """Borsadan fiyat çekmeyi açar/kapatır."""
+        payload = self.read_json()
+        acik = bool(payload.get("enabled"))
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            self.require_admin_step_up(conn)
+            conn.execute(
+                "INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES ('market_feed_enabled', ?, ?)"
+                " ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, updated_at=excluded.updated_at",
+                ("1" if acik else "0", now()),
+            )
+            audit(conn, admin["id"], "market_feed_" + ("on" if acik else "off"), "system_settings", None)
+            conn.commit()
+            self.json_response({"ok": True, "feed_enabled": acik})
+
+    def api_admin_delete_t2(self, settlement_id: int) -> None:
+        """Bekleyen bir T+2 kaydını iptal eder: tutar bekleyen bakiyeden düşer."""
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            self.require_admin_step_up(conn)
+            kayit = conn.execute("SELECT * FROM t2_settlements WHERE id=?", (settlement_id,)).fetchone()
+            if not kayit:
+                raise HttpError(404, "Kayıt bulunamadı")
+            if kayit["status"] == "pending":
+                conn.execute(
+                    "UPDATE accounts SET pending_balance=MAX(0, pending_balance-?) WHERE user_id=?",
+                    (float(kayit["remaining_amount"] or 0), kayit["user_id"]),
+                )
+            conn.execute("DELETE FROM t2_settlements WHERE id=?", (settlement_id,))
+            audit(conn, admin["id"], "delete_t2", "t2_settlement", settlement_id)
+            conn.commit()
+            self.json_response({"ok": True})
+
+    # ---------------- müşteri oluşturma ve şifre ----------------
+
+    def api_admin_create_user(self) -> None:
+        payload = self.read_json()
+        tc = re.sub(r"\D", "", str(payload.get("tc", "")))
+        full_name = str(payload.get("full_name", "")).strip()[:120]
+        phone = str(payload.get("phone", "")).strip()[:40]
+        email = str(payload.get("email", "")).strip()[:120]
+        city = str(payload.get("city", "")).strip()[:80]
+        district = str(payload.get("district", "")).strip()[:80]
+        password = str(payload.get("password", ""))
+        status = str(payload.get("status", "pending")).strip() or "pending"
+        opening = float(payload.get("opening_balance", 0) or 0)
+        if not identity_number_is_real(tc):
+            raise HttpError(400, "T.C. kimlik numarası algoritmaya uymuyor")
+        if not full_name or not phone:
+            raise HttpError(400, "Ad soyad ve telefon gerekli")
+        if not password_is_strong(password):
+            raise HttpError(400, "Şifre en az 10 karakter olmalı; büyük harf, küçük harf ve rakam içermeli")
+        if status not in {"pending", "under_review", "awaiting_back", "approved", "rejected"}:
+            raise HttpError(400, "Durum hatalı")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            self.require_admin_step_up(conn)
+            if conn.execute("SELECT id FROM users WHERE tc=?", (tc,)).fetchone():
+                raise HttpError(409, "Bu T.C. ile kayıt var")
+            salt, digest = hash_password(password)
+            cur = conn.execute(
+                "INSERT INTO users (tc, password_salt, password_hash, full_name, phone, email, city, district,"
+                " role, status, kyc_status, kyc_note, created_at, approved_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'user', ?, ?, '', ?, ?)",
+                (tc, salt, digest, full_name, phone, email, city, district, status,
+                 "approved" if status == "approved" else "pending", now(),
+                 now() if status == "approved" else None),
+            )
+            uid = int(cur.lastrowid)
+            conn.execute("INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, ?, 0, 0)", (uid, opening))
+            if opening:
+                conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (opening, uid))
+            audit(conn, admin["id"], "create_user", "user", uid, {"tc": tc[:3] + "*****"})
+            conn.commit()
+            self.json_response({"ok": True, "id": uid}, 201)
+
+    def api_admin_set_password(self, user_id: int) -> None:
+        payload = self.read_json()
+        password = str(payload.get("password", ""))
+        if not password_is_strong(password):
+            raise HttpError(400, "Şifre en az 10 karakter olmalı; büyük harf, küçük harf ve rakam içermeli")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            self.require_admin_step_up(conn)
+            if not conn.execute("SELECT 1 FROM users WHERE id=? AND role='user'", (user_id,)).fetchone():
+                raise HttpError(404, "Kullanıcı bulunamadı")
+            salt, digest = hash_password(password)
+            conn.execute("UPDATE users SET password_salt=?, password_hash=? WHERE id=?", (salt, digest, user_id))
+            conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))   # açık oturumlar kapansın
+            audit(conn, admin["id"], "reset_password", "user", user_id)
+            conn.commit()
+            self.json_response({"ok": True})
+
+    def api_admin_delete_user(self, user_id: int) -> None:
+        """Müşteriyi ve ona bağlı tüm kayıtları siler. Geri alınamaz."""
+        payload = self.read_json()
+        onay = str(payload.get("confirm", "")).strip().upper()
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            self.require_admin_step_up(conn)
+            hedef = conn.execute("SELECT * FROM users WHERE id=? AND role='user'", (user_id,)).fetchone()
+            if not hedef:
+                raise HttpError(404, "Kullanıcı bulunamadı")
+            if onay != "SIL":
+                raise HttpError(400, "Silme onayı için SIL yazılmalı")
+            # Yabancı anahtarlar ON DELETE CASCADE; yine de açık oturumlar kapatılır.
+            conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+            conn.execute("DELETE FROM users WHERE id=? AND role='user'", (user_id,))
+            audit(conn, admin["id"], "delete_user", "user", user_id,
+                  {"full_name": hedef["full_name"], "tc": str(hedef["tc"])[:3] + "*****"})
+            conn.commit()
+            self.json_response({"ok": True})
+
+    # ---------------- denetim kaydı ----------------
+
+    def api_admin_audit(self) -> None:
+        query = parse_qs(urlparse(self.path).query)
+        arama = (query.get("q") or [""])[0].strip()
+        limit = max(20, min(500, int((query.get("limit") or ["200"])[0] or 200)))
+        with connect_db() as conn:
+            self.require_admin(conn)
+            kosul, parametreler = "", []
+            if arama:
+                kosul = " WHERE a.action LIKE ? OR a.entity_type LIKE ? OR u.full_name LIKE ? "
+                parametreler = [f"%{arama}%"] * 3
+            rows = conn.execute(
+                "SELECT a.*, u.full_name actor_name FROM audit_logs a LEFT JOIN users u ON u.id=a.actor_user_id"
+                + kosul + " ORDER BY a.created_at DESC LIMIT ?",
+                parametreler + [limit],
+            ).fetchall()
+            self.json_response({"audit": [{
+                **dict(row),
+                "created_at_label": iso_time(row["created_at"]),
+                "reference": f"MK-DNT-{int(row['id']):08d}",
+            } for row in rows]})
 
     def api_admin_render_status(self) -> None:
         with connect_db() as conn:
@@ -4487,6 +4921,9 @@ def public_user(user: dict, include_sensitive: bool = False) -> dict:
     }
     if include_sensitive:
         data["tc_masked"] = user["tc"][:3] + "*****" + user["tc"][-3:]
+        data["tc"] = user["tc"]
+        # Kimlik numarası algoritmaya uyuyor mu? Uymuyorsa panelde "sahte" rozeti çıkar.
+        data["tc_valid"] = identity_number_is_real(str(user["tc"]))
         data["cash_balance"] = user.get("cash_balance", 0)
         data["blocked_balance"] = user.get("blocked_balance", 0)
         data["pending_balance"] = user.get("pending_balance", 0)
@@ -4645,7 +5082,7 @@ def order_rows(conn: sqlite3.Connection, where: str, params: tuple) -> list[dict
 def money_rows(conn: sqlite3.Connection, where: str, params: tuple) -> list[dict]:
     rows = conn.execute(
         f"""
-        SELECT m.*, u.full_name, b.bank_name, b.iban, b.account_holder
+        SELECT m.*, u.full_name, u.account_no, u.phone, b.bank_name, b.iban, b.account_holder
         FROM money_requests m
         JOIN users u ON u.id=m.user_id
         LEFT JOIN bank_accounts b ON b.id=m.bank_account_id
@@ -4715,8 +5152,25 @@ def reduce_position(conn: sqlite3.Connection, user_id: int, symbol: str, quantit
         conn.execute("DELETE FROM positions WHERE id=?", (row["id"],))
 
 
+def haberleri_isit() -> None:
+    """Sekme haberlerini arka planda önceden hazırlar; kullanıcı sekmeye
+    dokunduğunda liste hazır gelir, ilk açılışta beklemez."""
+    def calis():
+        time.sleep(4)                       # sunucu ayağa kalksın
+        while True:
+            for sekme in range(len(MARKET_NEWS_QUERIES)):
+                try:
+                    market_news(sekme)
+                except Exception:
+                    pass
+                time.sleep(2)
+            time.sleep(max(60, MARKET_NEWS_REFRESH_SECONDS // 2))
+    threading.Thread(target=calis, name="haber-isitici", daemon=True).start()
+
+
 if __name__ == "__main__":
     init_db()
+    haberleri_isit()
     server = ThreadingHTTPServer(("", PORT), AppHandler)
     print(f"Mukatabak backend running at http://localhost:{PORT}")
     print(f"Database: {DB_PATH}")

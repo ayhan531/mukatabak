@@ -118,12 +118,24 @@ export function TradePanel({
     setAmountText(q > 0 ? (q * price).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
   };
 
+  // Tutar alanı para ile çalışır: "40.000" yazınca kaç lot alınacağı hesaplanır.
   const onAmountChange = (raw) => {
     const pretty = group(raw);
     setAmountText(pretty);
     const value = parseAmount(pretty);
     const q = Number.isFinite(value) && price > 0 ? Math.floor(value / price) : 0;
     setQuantityText(q > 0 ? String(q) : "");
+  };
+
+  /* Alandan çıkınca yazılan tutar, gerçekten alınacak lotların tutarına
+     yuvarlanır; müşteri ne kadar para çıkacağını tam görür. */
+  const onAmountBlur = () => {
+    const value = parseAmount(amountText);
+    if (!Number.isFinite(value) || value <= 0) { setAmountText(""); setQuantityText(""); return; }
+    const q = price > 0 ? Math.floor(value / price) : 0;
+    if (q <= 0) { setAmountText(""); setQuantityText(""); return; }
+    setQuantityText(String(q));
+    setAmountText((q * price).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   };
 
   const matches = useMemo(() => {
@@ -233,6 +245,7 @@ export function TradePanel({
             value={amountText}
             placeholder="0,00"
             onChange={(event) => onAmountChange(event.target.value)}
+            onBlur={onAmountBlur}
           />
         </div>
         <div className="mk-quick">

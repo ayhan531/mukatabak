@@ -369,6 +369,11 @@ export default function CorporateLanding({ openAuth }) {
                     <span><Smartphone size={16} /> Telefona kurulabilir</span>
                     <span><Headphones size={16} /> Yatırımcı desteği</span>
                   </div>
+                  {/* SPK lisans şeridi: kurumsal güven satırının hemen altında. */}
+                  <div className="corporate-licence">
+                    <ShieldCheck size={16} />
+                    <span>SPK Lisanslı Güvenilir Aracı Kurum</span>
+                  </div>
                 </div>
                 <div className="hero-visual">
                   <PhoneMock quotes={quotes} />

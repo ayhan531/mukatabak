@@ -1848,6 +1848,25 @@ def company_profile(conn: sqlite3.Connection, quote: dict) -> dict:
     }
 
 
+class _BasliksizGovde:
+    """HEAD isteklerinde basliklar yazilir, govde sessizce yutulur."""
+
+    def __init__(self, ic):
+        self._ic = ic
+        self.basliklar_bitti = False
+
+    def write(self, veri):
+        if self.basliklar_bitti:
+            return len(veri)
+        return self._ic.write(veri)
+
+    def flush(self):
+        return self._ic.flush()
+
+    def __getattr__(self, ad):
+        return getattr(self._ic, ad)
+
+
 class AppHandler(BaseHTTPRequestHandler):
     server_version = "MukatabakBackend/1.0"
 
@@ -1874,7 +1893,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Credentials", "true")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Cookie, Authorization, X-Session-Id")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS, DELETE")
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
@@ -1884,6 +1903,28 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         self.dispatch("GET")
+
+    # Indirme yoneticileri ve baglanti onizlemeleri once HEAD sorar;
+    # GET ile ayni basliklar donsun, govde gitmesin.
+    def do_HEAD(self) -> None:
+        gercek = self.wfile
+        sarmal = _BasliksizGovde(gercek)
+        self.wfile = sarmal
+        asil_bitir = self.end_headers
+
+        def bitir():
+            asil_bitir()
+            sarmal.basliklar_bitti = True
+
+        self.end_headers = bitir
+        try:
+            self.dispatch("GET")
+        finally:
+            try:
+                del self.end_headers
+            except AttributeError:
+                pass
+            self.wfile = gercek
 
     def do_POST(self) -> None:
         self.dispatch("POST")

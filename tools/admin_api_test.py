@@ -24,7 +24,13 @@ def iste(yol, veri=None, yontem=None):
             return e.code, {"raw": govde[:200]}
 
 
-ortam = dict(os.environ, PORT="8799", DB_PATH=os.path.join(os.getcwd(), "test_admin.db"),
+db = os.path.join(os.getcwd(), "test_admin.db")
+for ek in ("", "-wal", "-shm"):
+    try:
+        os.remove(db + ek)
+    except OSError:
+        pass
+ortam = dict(os.environ, PORT="8799", DATABASE_PATH=db,
              ADMIN_TC="11111111110", ADMIN_PASSWORD="Admin12345", REQUIRE_LIVE_MARKET_FOR_TRADING="0")
 sunucu = subprocess.Popen([sys.executable, "backend_server.py"], env=ortam,
                           stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)

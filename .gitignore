@@ -20,3 +20,4 @@ _sync.bundle
 
 # test veritabanlari
 tools/test_*.db
+tools/test_*.db

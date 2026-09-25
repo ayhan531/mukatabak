@@ -101,4 +101,43 @@ if idler:
     yaz("kredi talebi", iste("/api/money-requests", {
         "request_type": "credit", "amount": 100000, "note": "Limit yukseltme talebi",
     }))
+# 6) kimlik belgeleri (yonetim panelinde fotografli inceleme icin)
+import struct, zlib, uuid
+
+
+def ornek_png(r, g, b):
+    ham = b"".join(b"\x00" + bytes([r, g, b] * 8) for _ in range(8))
+    def parca(tip, veri):
+        return struct.pack(">I", len(veri)) + tip + veri + struct.pack(">I", zlib.crc32(tip + veri) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n"
+            + parca(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0))
+            + parca(b"IDAT", zlib.compress(ham))
+            + parca(b"IEND", b""))
+
+
+def belge_yukle(acici):
+    sinir = "----mk" + uuid.uuid4().hex
+    dosyalar = {
+        "identity_front": ("kimlik-on.png", ornek_png(40, 90, 200)),
+        "identity_back": ("kimlik-arka.png", ornek_png(40, 160, 110)),
+        "selfie": ("yuz.png", ornek_png(210, 120, 60)),
+    }
+    govde = b""
+    for ad, (dosya_adi, icerik) in dosyalar.items():
+        govde += (f"--{sinir}\r\nContent-Disposition: form-data; name=\"{ad}\"; filename=\"{dosya_adi}\"\r\n"
+                  "Content-Type: image/png\r\n\r\n").encode()
+        govde += icerik + b"\r\n"
+    govde += f"--{sinir}--\r\n".encode()
+    r = urllib.request.Request(KOK + "/api/profile/documents", data=govde, method="POST")
+    r.add_header("Content-Type", f"multipart/form-data; boundary={sinir}")
+    try:
+        with acici.open(r, timeout=60) as y:
+            return y.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+if idler:
+    print(f"{'kimlik belgeleri':34s} {belge_yukle(acici)} tamam")
+
 print("BITTI")

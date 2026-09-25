@@ -1118,3 +1118,49 @@ a.ac-ghost{display:inline-flex;align-items:center;text-decoration:none}
   .auth-stage .auth-phone { width: 100%; max-width: none; height: auto; min-height: 100dvh; border-radius: 0; box-shadow: none; overflow: visible; }
   .auth-stage .auth-screen { position: static; inset: auto; height: auto; min-height: 100dvh; overflow: visible; animation: none; padding-bottom: calc(52px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* ---- Yonetim: kimlik belgeleri (fotografli inceleme) ---- */
+.bg-liste{display:flex;flex-direction:column;gap:14px;margin-top:12px}
+.bg-kart{border:1px solid var(--line);border-radius:16px;background:#fff;overflow:hidden}
+.dark-mode .bg-kart{background:#171c27;border-color:#303747}
+.bg-kart>header{display:flex;align-items:baseline;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.dark-mode .bg-kart>header{border-color:#303747}
+.bg-kart>header strong{font-size:15px;font-weight:800}
+.bg-kart>header small{color:var(--muted);font-size:12.5px}
+.bg-kutucuklar{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;padding:14px 16px 16px}
+.bg-belge{display:flex;flex-direction:column;gap:8px;min-width:0}
+.bg-onizleme{width:100%;aspect-ratio:3/2;border-radius:12px;overflow:hidden;background:#f2f2f6;
+  display:grid;place-items:center;border:1px solid var(--line);padding:0;cursor:zoom-in}
+.dark-mode .bg-onizleme{background:#11151e;border-color:#303747}
+.bg-onizleme img{width:100%;height:100%;object-fit:cover;display:block}
+.bg-yok{font-size:12.5px;color:var(--muted);padding:10px;text-align:center}
+.bg-alt{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.bg-alt strong{display:block;font-size:13.5px;font-weight:700}
+.bg-alt small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.bg-not{margin:0;font-size:12px;color:var(--muted);line-height:1.4;
+  background:#f6f7fb;border-radius:9px;padding:7px 9px}
+.dark-mode .bg-not{background:#11151e}
+.bg-eylem{display:flex;gap:7px;flex-wrap:wrap}
+.bg-eylem button{flex:1 1 auto;min-width:74px;padding:8px 10px;font-size:12.5px;border-radius:9px}
+
+/* buyutulmus goruntuleyici */
+.bg-layer{position:fixed;inset:0;background:rgba(8,10,16,.72);z-index:90;display:grid;place-items:center;padding:24px;
+  animation:fadeIn .15s ease both}
+.bg-kutu{width:min(920px,96vw);max-height:92vh;display:flex;flex-direction:column;
+  background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,.4)}
+.dark-mode .bg-kutu{background:#141823}
+.bg-kutu>header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  padding:14px 16px;border-bottom:1px solid var(--line)}
+.dark-mode .bg-kutu>header{border-color:#2a3040}
+.bg-kutu>header strong{display:block;font-size:15px;font-weight:800}
+.bg-kutu>header small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.bg-araclar{display:flex;gap:8px;flex-wrap:wrap}
+.bg-araclar .ac-ghost{padding:8px 13px;font-size:13px;width:auto;flex:none;text-decoration:none;display:inline-flex;align-items:center}
+.bg-govde{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;padding:16px;background:#f5f6fa}
+.dark-mode .bg-govde{background:#0d1017}
+.bg-govde img{max-width:100%;max-height:74vh;border-radius:10px;transition:transform .2s ease}
+@media(max-width:560px){
+  .bg-kutucuklar{grid-template-columns:1fr;padding:12px}
+  .bg-kutu{width:100vw;max-height:100vh;border-radius:0}
+  .bg-govde img{max-height:62vh}
+}

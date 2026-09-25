@@ -635,6 +635,184 @@ function SettingsPanel({ settings, onNotice, ensure, refresh }) {
 
 /* ---------- onay kuyrukları ---------- */
 
+/* ---------- Kimlik belgeleri: fotoğraflı inceleme ---------- */
+
+const BELGE_ADI = {
+  identity_front: "Kimlik Ön Yüz",
+  identity_back: "Kimlik Arka Yüz",
+  selfie: "Yüz Doğrulama",
+};
+const BELGE_DURUMU = {
+  approved: ["Onaylandı", "yesil"],
+  rejected: ["Reddedildi", "kirmizi"],
+  awaiting_back: ["Tekrar istendi", "sari"],
+  pending: ["Bekliyor", "sari"],
+};
+
+/** Büyütülmüş belge görüntüleyici: döndürme ve yeni sekmede açma. */
+function BelgeGoruntuleyici({ belge, onClose }) {
+  const [aci, setAci] = useState(0);
+  useEffect(() => {
+    const tus = (olay) => { if (olay.key === "Escape") onClose(); };
+    window.addEventListener("keydown", tus);
+    return () => window.removeEventListener("keydown", tus);
+  }, [onClose]);
+  if (!belge) return null;
+  return (
+    <div className="bg-layer" onClick={onClose}>
+      <div className="bg-kutu" onClick={(olay) => olay.stopPropagation()}>
+        <header>
+          <span>
+            <strong>{belge.type_label || BELGE_ADI[belge.doc_type] || belge.doc_type}</strong>
+            <small>{belge.full_name} · {belge.created_at_label}</small>
+          </span>
+          <span className="bg-araclar">
+            <button className="ac-ghost" onClick={() => setAci((a) => (a + 90) % 360)}>Döndür</button>
+            <a className="ac-ghost" href={belge.url} target="_blank" rel="noopener noreferrer">Yeni sekmede aç</a>
+            <button className="ac-ghost" onClick={onClose}>Kapat</button>
+          </span>
+        </header>
+        <div className="bg-govde">
+          <img src={belge.url} alt="" style={{ transform: `rotate(${aci}deg)` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsPanel({ documents, ensure, onNotice, refresh }) {
+  const [suzgec, setSuzgec] = useState("pending");
+  const [arama, setArama] = useState("");
+  const [gerekce, setGerekce] = useState("");
+  const [busy, setBusy] = useState(0);
+  const [buyuk, setBuyuk] = useState(null);
+  const [bozuk, setBozuk] = useState({});
+
+  const sayilar = useMemo(() => {
+    const c = { hepsi: documents.length, pending: 0, approved: 0, rejected: 0 };
+    for (const d of documents) {
+      if (d.status === "approved") c.approved += 1;
+      else if (d.status === "rejected") c.rejected += 1;
+      else c.pending += 1;
+    }
+    return c;
+  }, [documents]);
+
+  const gosterilen = useMemo(() => {
+    const kelime = arama.trim().toLocaleLowerCase("tr");
+    return documents.filter((d) => {
+      const durumTamam = suzgec === "hepsi"
+        || (suzgec === "pending" ? d.status !== "approved" && d.status !== "rejected" : d.status === suzgec);
+      if (!durumTamam) return false;
+      if (!kelime) return true;
+      return `${d.full_name || ""} ${d.account_no || ""}`.toLocaleLowerCase("tr").includes(kelime);
+    });
+  }, [documents, suzgec, arama]);
+
+  /* Aynı müşterinin belgeleri tek kartta toplanır. */
+  const gruplar = useMemo(() => {
+    const harita = new Map();
+    for (const d of gosterilen) {
+      const anahtar = d.user_id;
+      if (!harita.has(anahtar)) harita.set(anahtar, { user_id: anahtar, full_name: d.full_name, belgeler: [] });
+      harita.get(anahtar).belgeler.push(d);
+    }
+    return [...harita.values()];
+  }, [gosterilen]);
+
+  const islem = async (belge, eylem) => {
+    const not = gerekce.trim();
+    if (eylem !== "approve" && not.length < 8) {
+      return onNotice("Gerekçe kısa", "Ret ya da yeniden isteme için en az 8 karakterlik gerekçe yaz.");
+    }
+    if (!(await ensure())) return;
+    setBusy(belge.id);
+    try {
+      await api(`/api/admin/documents/${belge.id}/${eylem}`, {
+        method: "POST",
+        body: JSON.stringify({ note: not || "Belge görsel olarak doğrulandı" }),
+      });
+      await refresh();
+      setGerekce("");
+      onNotice("Tamam", eylem === "approve" ? "Belge onaylandı." : eylem === "reject" ? "Belge reddedildi." : "Belge yeniden istendi.");
+    } catch (hata) {
+      onNotice("Olmadı", hata?.message || "İşlem tamamlanamadı");
+    } finally {
+      setBusy(0);
+    }
+  };
+
+  return (
+    <Section title="Kimlik belgeleri" note={`${sayilar.pending} bekleyen · ${documents.length} belge`}>
+      <div className="ac-form">
+        <Field label="Ret / yeniden isteme gerekçesi (en az 8 karakter)" wide>
+          <Input value={gerekce} onChange={(e) => setGerekce(e.target.value)} placeholder="Örn: Fotoğraf bulanık, bilgiler okunmuyor" />
+        </Field>
+      </div>
+
+      <Input value={arama} onChange={(e) => setArama(e.target.value)} placeholder="Müşteri adıyla ara…" />
+
+      <div className="ac-sekme">
+        {[["pending", `Bekleyen (${sayilar.pending})`], ["approved", `Onaylı (${sayilar.approved})`],
+          ["rejected", `Reddedilen (${sayilar.rejected})`], ["hepsi", `Tümü (${sayilar.hepsi})`]].map(([anahtar, etiket]) => (
+          <button key={anahtar} className={suzgec === anahtar ? "on" : ""} onClick={() => setSuzgec(anahtar)}>{etiket}</button>
+        ))}
+      </div>
+
+      {gruplar.length === 0 && (
+        <div className="ac-line"><span><strong>Kayıt yok</strong><small>Bu süzgeçte belge bulunmuyor</small></span></div>
+      )}
+
+      <div className="bg-liste">
+        {gruplar.map((grup) => (
+          <article className="bg-kart" key={grup.user_id}>
+            <header>
+              <strong>{grup.full_name}</strong>
+              <small>{grup.belgeler.length} belge</small>
+            </header>
+            <div className="bg-kutucuklar">
+              {grup.belgeler.map((belge) => {
+                const [etiket, renk] = BELGE_DURUMU[belge.status] || ["Bekliyor", "sari"];
+                return (
+                  <div className="bg-belge" key={belge.id}>
+                    <button className="bg-onizleme" onClick={() => setBuyuk(belge)} title="Büyüt">
+                      {bozuk[belge.id] ? (
+                        <span className="bg-yok">Görsel açılamadı</span>
+                      ) : (
+                        <img
+                          src={belge.url}
+                          alt=""
+                          loading="lazy"
+                          onError={() => setBozuk((e) => ({ ...e, [belge.id]: true }))}
+                        />
+                      )}
+                    </button>
+                    <div className="bg-alt">
+                      <span>
+                        <strong>{belge.type_label || BELGE_ADI[belge.doc_type] || belge.doc_type}</strong>
+                        <small>{belge.created_at_label}</small>
+                      </span>
+                      <em className={`ac-rozet ${renk}`}>{etiket}</em>
+                    </div>
+                    {belge.review_note && <p className="bg-not">{belge.review_note}</p>}
+                    <div className="bg-eylem">
+                      <button className="ac-ghost" disabled={busy === belge.id} onClick={() => islem(belge, "approve")}>Onayla</button>
+                      <button className="ac-ghost" disabled={busy === belge.id} onClick={() => islem(belge, "retry")}>Tekrar iste</button>
+                      <button className="ac-danger small" disabled={busy === belge.id} onClick={() => islem(belge, "reject")}>Reddet</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <BelgeGoruntuleyici belge={buyuk} onClose={() => setBuyuk(null)} />
+    </Section>
+  );
+}
+
 function ApprovalList({ title, note, items, render, onAct, ensure, onNotice, refresh, reasonRequired }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(0);
@@ -2207,17 +2385,7 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
         {sayfa === "Emirler" && <OrdersPanel orders={orders} ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
         {sayfa === "Denetim Kaydı" && <AuditPanel />}
         {sayfa === "Belgeler" && (
-          <ApprovalList
-            title="Kimlik belgeleri" note={`${documents.length} belge`} items={documents} reasonRequired
-            ensure={lock.ensure} onNotice={onNotice} refresh={belgeleriYukle}
-            render={(d) => (
-              <span>
-                <strong>{d.doc_type_label || d.doc_type}</strong>
-                <small>{d.full_name} · {d.status_label || d.status}</small>
-              </span>
-            )}
-            onAct={(d, action, note) => api(`/api/admin/documents/${d.id}/${action}`, { method: "POST", body: JSON.stringify({ note }) })}
-          />
+          <DocumentsPanel documents={documents} ensure={lock.ensure} onNotice={onNotice} refresh={belgeleriYukle} />
         )}
       </main>
 

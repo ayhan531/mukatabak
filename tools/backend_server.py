@@ -4765,7 +4765,7 @@ def commission_for(conn: sqlite3.Connection, gross_total: float) -> float:
 def document_rows(conn: sqlite3.Connection, where: str = "", params: tuple = ()) -> list[dict]:
     rows = conn.execute(
         f"""
-        SELECT d.*, u.full_name
+        SELECT d.*, u.full_name, u.account_no
         FROM documents d
         JOIN users u ON u.id=d.user_id
         {where}

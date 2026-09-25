@@ -460,7 +460,14 @@ export function PasswordPage({ onBack, onSubmit }) {
 
 /* ---------- Kişisel Bilgiler ---------- */
 
-export function Personal({ onBack, me, onContact, onIdentity, onAvatar, monogram }) {
+export function Personal({ onBack, me, onContact, onIdentity, onDocuments, documents, onAvatar, monogram }) {
+  const belgeDurumu = (() => {
+    const liste = documents || [];
+    if (!liste.length) return T("Kimlik fotoğraflarını yükle");
+    if (liste.some((d) => d.status === "rejected")) return T("Bir belge reddedildi, yeniden yükle");
+    if (liste.some((d) => d.status === "pending")) return T("İncelemede");
+    return T("Onaylandı");
+  })();
   return (
     <div className="page gap-14">
       <CenteredHeader title={T("Kişisel Bilgiler")} onBack={onBack} />
@@ -478,6 +485,7 @@ export function Personal({ onBack, me, onContact, onIdentity, onAvatar, monogram
             <Icon name="chevron" size={18} color="var(--muted)" />
           </button>
           <InfoRow title={T("Kimlik Bilgileri")} note={T("Ad soyad, T.C. kimlik no ve doğum tarihi")} chevron onClick={onIdentity} />
+          <InfoRow title={T("Kimlik Belgelerim")} note={belgeDurumu} chevron onClick={onDocuments} />
           <InfoRow title={T("İletişim Bilgileri")} note={T("E-posta ve tebligat tercihiniz")} chevron onClick={onContact} />
         </Divided>
       </div>

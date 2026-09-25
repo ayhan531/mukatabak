@@ -280,6 +280,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
      hesaplari (para cekme) ayri listelerdir. */
   const kurumHesaplari = portfolio.data?.system_bank_accounts || [];
   const bankAccounts = portfolio.data?.bank_accounts || [];
+  const documents = portfolio.data?.documents || [];
   const stockValue = holdings.reduce((sum, item) => sum + item.value, 0);
   const cash = Number(account?.cash_balance || 0);
   const blocked = Number(account?.blocked_balance || 0);
@@ -455,6 +456,8 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             onAvatar={pickAvatar}
             onContact={() => go(12, 11)}
             onIdentity={() => setOverlay({ kind: "identity" })}
+            onDocuments={() => setOverlay({ kind: "documents" })}
+            documents={documents}
           />
         );
       case 12:
@@ -596,6 +599,15 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             <ValueRow label={T("Müşteri No")} value={me?.account_no || "—"} />
           </Divided>
         </Sheet>
+      )}
+
+      {overlay?.kind === "documents" && (
+        <IdentityDocs
+          documents={documents}
+          onClose={() => setOverlay(null)}
+          onNotice={showNotice}
+          onDone={() => { portfolio.reload(); refreshMe?.(); }}
+        />
       )}
 
       {overlay?.kind === "banks" && (
@@ -848,6 +860,122 @@ function KopyaSatiri({ label, value, vurgu }) {
         <Icon name={kopyalandi ? "check" : "copy"} size={17} />
       </button>
     </div>
+  );
+}
+
+/* ---------- Kimlik belgeleri ---------- */
+
+const BELGE_TURLERI = [
+  ["identity_front", "Kimlik Ön Yüz", "Kimliğinin ön yüzünü net çek"],
+  ["identity_back", "Kimlik Arka Yüz", "Arka yüzdeki bilgiler okunabilsin"],
+  ["selfie", "Yüz Doğrulama", "Kimliğini yüzünün yanında tutarak çek"],
+];
+
+const BELGE_DURUM = {
+  approved: ["Onaylandı", "ok"],
+  rejected: ["Reddedildi", "no"],
+  pending: ["İncelemede", "wait"],
+};
+
+/** Müşterinin kimlik belgelerini yükleyip durumunu izlediği sayfa.
+    Sunucu üç dosyayı tek istekte beklediği için üçü birden seçilir. */
+function IdentityDocs({ documents, onClose, onNotice, onDone }) {
+  const [secilen, setSecilen] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [hata, setHata] = useState("");
+  const girisler = useRef({});
+
+  // Her tür için en yeni kayıt (document_rows tarihe göre azalan döner).
+  const sonDurum = useMemo(() => {
+    const harita = {};
+    for (const belge of documents || []) if (!harita[belge.doc_type]) harita[belge.doc_type] = belge;
+    return harita;
+  }, [documents]);
+
+  const sec = (tur) => (olay) => {
+    const dosya = olay.target.files?.[0];
+    if (!dosya) return;
+    if (!dosya.type.startsWith("image/")) { setHata(T("Yalnızca fotoğraf yükleyebilirsin.")); return; }
+    if (dosya.size > 10 * 1024 * 1024) { setHata(T("Fotoğraf 10 MB'den küçük olmalı.")); return; }
+    setHata("");
+    setSecilen((eski) => ({ ...eski, [tur]: { dosya, onizleme: URL.createObjectURL(dosya) } }));
+  };
+
+  const eksik = BELGE_TURLERI.filter(([tur]) => !secilen[tur]).map(([, ad]) => ad);
+
+  const gonder = async () => {
+    if (eksik.length) { setHata(`${T("Şu belgeler eksik:")} ${eksik.join(", ")}`); return; }
+    setBusy(true);
+    setHata("");
+    try {
+      const form = new FormData();
+      for (const [tur] of BELGE_TURLERI) form.append(tur, secilen[tur].dosya);
+      await api("/api/profile/documents", { method: "POST", body: form });
+      setSecilen({});
+      onDone?.();
+      onClose();
+      onNotice("Belgeler gönderildi", "Kimlik belgelerin incelemeye alındı. Sonucu bu sayfadan takip edebilirsin.");
+    } catch (sorun) {
+      setHata(sorun.message || T("Belgeler gönderilemedi."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet title={T("Kimlik Belgelerim")} onClose={onClose}>
+      <div className="kb-sheet">
+        <span className="tl-note">
+          {T("Hesabının onaylanması için kimliğinin iki yüzü ve yüz doğrulama fotoğrafı gerekir.")}
+        </span>
+
+        {BELGE_TURLERI.map(([tur, ad, ipucu]) => {
+          const mevcut = sonDurum[tur];
+          const yeni = secilen[tur];
+          const [etiket, sinif] = BELGE_DURUM[mevcut?.status] || [];
+          return (
+            <div className="kb-slot" key={tur}>
+              <button
+                className={`kb-thumb${yeni || mevcut ? " dolu" : ""}`}
+                onClick={() => girisler.current[tur]?.click()}
+                aria-label={`${ad} ${T("yükle")}`}
+              >
+                {yeni ? (
+                  <img src={yeni.onizleme} alt="" />
+                ) : mevcut ? (
+                  <img src={mevcut.url} alt="" onError={(olay) => { olay.currentTarget.style.display = "none"; }} />
+                ) : (
+                  <Icon name="plus" size={22} />
+                )}
+              </button>
+              <span className="kb-copy">
+                <strong>{T(ad)}</strong>
+                <span>{yeni ? yeni.dosya.name : T(ipucu)}</span>
+                {mevcut && !yeni && etiket && <em className={`kb-durum ${sinif}`}>{T(etiket)}</em>}
+                {mevcut?.review_note && !yeni && <em className="kb-not">{mevcut.review_note}</em>}
+              </span>
+              <input
+                ref={(dugum) => { girisler.current[tur] = dugum; }}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={sec(tur)}
+              />
+            </div>
+          );
+        })}
+
+        {hata && <span className="trade-error">{hata}</span>}
+        <button className="btn" disabled={busy || eksik.length > 0} onClick={gonder}>
+          {T(busy ? "Gönderiliyor…" : "Onaya Gönder")}
+        </button>
+        <span className="tl-hint">
+          {eksik.length
+            ? `${T("Göndermek için üç fotoğrafı da seç.")} ${T("Eksik:")} ${eksik.join(", ")}`
+            : T("Fotoğraflar yalnızca kimlik doğrulama için kullanılır.")}
+        </span>
+      </div>
+    </Sheet>
   );
 }
 

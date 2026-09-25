@@ -19,7 +19,7 @@ npx vite build >/tmp/mk-build.log 2>&1 && echo "TAMAM vite build" || { echo "SOR
 
 baslik "3/5  Backend test paketleri"
 ( cd tools && rm -f test_*.db
-  for t in admin_api_test.py market_admin_test.py admin_delete_test.py money_flow_test.py test_news_feed.py; do
+  for t in admin_api_test.py market_admin_test.py admin_delete_test.py money_flow_test.py document_flow_test.py test_news_feed.py; do
     printf '%-24s ' "$t"
     if timeout 300 python3 "$t" >/tmp/mk-$t.log 2>&1; then tail -1 /tmp/mk-$t.log; else echo "SORUN"; tail -3 /tmp/mk-$t.log; fi
   done

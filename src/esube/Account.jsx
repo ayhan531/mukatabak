@@ -20,7 +20,7 @@ const Row = ({ tile, icon, title, subtitle, onClick }) => (
 export default function Account({
   me, account, monogram, version, dark, setDark,
   onOpenPersonal, onOpenSecurity, onOpenContracts, onOpenSettings, onOpenNotifications,
-  onTransfer, onHistory, onOrders, onLogout, onExport,
+  onTransfer, onHistory, onOrders, onBanks, onLogout, onExport,
 }) {
   const cash = Number(account?.cash_balance || 0);
   const blocked = Number(account?.blocked_balance || 0);
@@ -75,6 +75,9 @@ export default function Account({
         <Row tile="t1" icon="history" title={T("Geçmiş İşlemler")} subtitle={T("Alış ve satış kayıtları")} onClick={onHistory} />
         <div className="hline" />
         <Row tile="t2" icon="orders" title={T("Emirlerim")} subtitle={T("Bekleyen ve gerçekleşen emirler")} onClick={onOrders} />
+        <div className="hline" />
+        {/* Para çekmede kullanılan kayıtlı IBAN'lar buradan görülür. */}
+        <Row tile="t7" icon="bank" title={T("Banka Hesaplarım")} subtitle={T("Para çekmede kullanılan IBAN'lar")} onClick={onBanks} />
         <div className="hline" />
         <Row tile="t3" icon="bell" title={T("Bildirimler")} subtitle={T("Fiyat alarmları ve duyurular")} onClick={onOpenNotifications} />
         <div className="hline" />

@@ -44,6 +44,9 @@ function useOnline() {
 }
 
 // APK'da kimlik bilgileri maskeli görünür: "1•• ••• ••• 46".
+/** IBAN'ı dörtlü gruplar hâlinde okunur yazar. */
+const ibanYaz = (value) => String(value || "").replace(/\s/g, "").replace(/(.{4})/g, "$1 ").trim();
+
 const maskTc = (value) => {
   const digits = String(value || "").replace(/\D/g, "");
   return digits.length >= 11 ? `${digits[0]}•• ••• ••• ${digits.slice(-2)}` : "1•• ••• ••• ••";
@@ -273,7 +276,10 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const account = portfolio.data?.account || null;
   const orders = portfolio.data?.orders?.filter((order) => order.status === "pending") || [];
   const transactions = portfolio.data?.transactions || [];
-  const bankAccounts = portfolio.data?.system_bank_accounts || [];
+  /* Kurum transfer hesaplari (para yatirma) ile musterinin kendi kayitli
+     hesaplari (para cekme) ayri listelerdir. */
+  const kurumHesaplari = portfolio.data?.system_bank_accounts || [];
+  const bankAccounts = portfolio.data?.bank_accounts || [];
   const stockValue = holdings.reduce((sum, item) => sum + item.value, 0);
   const cash = Number(account?.cash_balance || 0);
   const blocked = Number(account?.blocked_balance || 0);
@@ -358,6 +364,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             onTransfer={(deposit) => setOverlay({ kind: "transfer", deposit })}
             onHistory={() => { setPortfolioTab(1); go(3); }}
             onOrders={() => { setPortfolioTab(2); go(3); }}
+            onBanks={() => setOverlay({ kind: "banks" })}
             onExport={() => { window.location.href = "/api/transactions/export"; }}
             onLogout={onLogout}
           />
@@ -597,14 +604,24 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             <Divided>
               {bankAccounts.map((bank) => (
                 <div className="info-row" key={bank.id}>
-                  <span className="copy"><strong>{bank.bank_name}</strong><span>{bank.iban}</span></span>
-                  <span /><span />
+                  <span className="copy">
+                    <strong>{bank.bank_name}</strong>
+                    <span>{ibanYaz(bank.iban)}</span>
+                  </span>
+                  <span className="mk-sub">{bank.account_holder}</span>
+                  <span />
                 </div>
               ))}
             </Divided>
           ) : (
-            <span style={{ fontSize: "calc(14px * var(--s))", color: "var(--muted)" }}>{T("Tanımlı banka hesabı bulunmuyor.")}</span>
+            <div className="referral-note">
+              <Icon name="bank" size={22} color="var(--muted)" />
+              <span>{T("Kayıtlı banka hesabın yok. İlk para çekme talebinde girdiğin hesap buraya kaydedilir.")}</span>
+            </div>
           )}
+          <button className="btn" style={{ marginTop: 14 }} onClick={() => { setOverlay(null); setOverlay({ kind: "transfer", deposit: false }); }}>
+            {T("Para Çek")}
+          </button>
         </Sheet>
       )}
 
@@ -622,6 +639,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
         <TransferSheet
           deposit={overlay.deposit}
           available={available}
+          kurumHesaplari={kurumHesaplari}
           bankAccounts={bankAccounts}
           me={me}
           onClose={() => setOverlay(null)}
@@ -833,23 +851,30 @@ function KopyaSatiri({ label, value, vurgu }) {
   );
 }
 
-function TransferSheet({ deposit, available, bankAccounts, me, onClose, onDone }) {
+function TransferSheet({ deposit, available, kurumHesaplari, bankAccounts, me, onClose, onDone }) {
+  const kayitli = bankAccounts || [];
   const [amountText, setAmountText] = useState("");
+  /* Kayıtlı hesabı olan müşteri her seferinde IBAN yazmaz: listeden seçer.
+     "yeni" seçilirse alanlar açılır ve gönderilen hesap yine kaydedilir. */
+  const [secim, setSecim] = useState(() => (kayitli.length ? String(kayitli[0].id) : "yeni"));
   const [holder, setHolder] = useState(me?.full_name || "");
   const [bank, setBank] = useState("");
   const [iban, setIban] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const aktifHesaplar = (bankAccounts || []).filter((hesap) => Number(hesap.is_active ?? 1) === 1);
+  const secili = secim === "yeni" ? null : kayitli.find((h) => String(h.id) === secim) || null;
+  const aktifHesaplar = (kurumHesaplari || []).filter((hesap) => Number(hesap.is_active ?? 1) === 1);
 
   const submit = async () => {
     const value = parseAmount(amountText);
     if (!Number.isFinite(value) || value <= 0) { setError(T("Geçerli bir tutar gir.")); return; }
     if (!deposit) {
-      if (!holder.trim()) { setError(T("Hesap adını gir.")); return; }
-      if (!bank.trim()) { setError(T("Banka adını gir.")); return; }
-      if (iban.replace(/\s/g, "").length < 26) { setError(T("Geçerli bir IBAN gir.")); return; }
+      if (!secili) {
+        if (!holder.trim()) { setError(T("Hesap adını gir.")); return; }
+        if (!bank.trim()) { setError(T("Banka adını gir.")); return; }
+        if (iban.replace(/\s/g, "").length < 26) { setError(T("Geçerli bir IBAN gir.")); return; }
+      }
       if (value > available) { setError(T("Çekilebilir bakiyeden fazla tutar girdin.")); return; }
     }
     setBusy(true);
@@ -857,7 +882,12 @@ function TransferSheet({ deposit, available, bankAccounts, me, onClose, onDone }
     try {
       const payload = deposit
         ? { request_type: "deposit", amount: value, account_ref: aktifHesaplar[0]?.iban || "" }
-        : { request_type: "withdraw", amount: value, account_holder: holder.trim(), bank_name: bank.trim(), iban: iban.replace(/\s/g, "") };
+        : {
+          request_type: "withdraw", amount: value,
+          account_holder: (secili ? secili.account_holder : holder).trim(),
+          bank_name: (secili ? secili.bank_name : bank).trim(),
+          iban: String(secili ? secili.iban : iban).replace(/\s/g, ""),
+        };
       await api("/api/money-requests", { method: "POST", body: JSON.stringify(payload) });
       onDone(deposit ? "Para yatırma bildirimin alındı." : "Para çekme talebin alındı.");
     } catch (problem) {
@@ -903,19 +933,42 @@ function TransferSheet({ deposit, available, bankAccounts, me, onClose, onDone }
               <span>{T("ÇEKİLEBİLİR BAKİYE")}</span>
               <strong>{money(available)}</strong>
             </div>
-            <label className="tl-field">
-              <span>{T("Hesap Adı")}</span>
-              <input value={holder} placeholder={T("Ad Soyad")} onChange={(event) => setHolder(event.target.value)} />
-            </label>
-            <label className="tl-field">
-              <span>{T("Banka Adı")}</span>
-              <input value={bank} placeholder={T("Banka adını giriniz")} onChange={(event) => setBank(event.target.value)} />
-            </label>
-            <label className="tl-field">
-              <span>IBAN</span>
-              <input value={iban} placeholder="TR00 0000 0000 0000 0000 0000 00" inputMode="text"
-                onChange={(event) => setIban(event.target.value.toUpperCase())} />
-            </label>
+            {kayitli.length > 0 && (
+              <label className="tl-field">
+                <span>{T("Hesap")}</span>
+                <select value={secim} onChange={(event) => setSecim(event.target.value)}>
+                  {kayitli.map((hesap) => (
+                    <option key={hesap.id} value={String(hesap.id)}>
+                      {hesap.bank_name} · •••• {String(hesap.iban || "").replace(/\s/g, "").slice(-4)}
+                    </option>
+                  ))}
+                  <option value="yeni">{T("Yeni hesap gir")}</option>
+                </select>
+              </label>
+            )}
+            {secili ? (
+              <div className="bank-card">
+                <div className="bank-head">{secili.bank_name}</div>
+                <KopyaSatiri label={T("Hesap Sahibi")} value={secili.account_holder} />
+                <KopyaSatiri label="IBAN" value={ibanYaz(secili.iban)} />
+              </div>
+            ) : (
+              <>
+                <label className="tl-field">
+                  <span>{T("Hesap Adı")}</span>
+                  <input value={holder} placeholder={T("Ad Soyad")} onChange={(event) => setHolder(event.target.value)} />
+                </label>
+                <label className="tl-field">
+                  <span>{T("Banka Adı")}</span>
+                  <input value={bank} placeholder={T("Banka adını giriniz")} onChange={(event) => setBank(event.target.value)} />
+                </label>
+                <label className="tl-field">
+                  <span>IBAN</span>
+                  <input value={iban} placeholder="TR00 0000 0000 0000 0000 0000 00" inputMode="text"
+                    onChange={(event) => setIban(event.target.value.toUpperCase())} />
+                </label>
+              </>
+            )}
             <label className="tl-field">
               <span>{T("Çekim Tutarı")} (₺)</span>
               <input inputMode="decimal" value={amountText} placeholder="0,00"

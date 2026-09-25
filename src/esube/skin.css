@@ -502,6 +502,7 @@ body.esube-open { background: var(--bg5); }
 .mk-menu .t4 { background: var(--tint-green); color: var(--green); }
 .mk-menu .t5 { background: #e3ecff; color: #3b6cff; }
 .mk-menu .t6 { background: #ece7ff; color: #7b5bdc; }
+.mk-menu .t7 { background: #ddf3f0; color: #0e9a8a; }
 [data-theme="dark"] .mk-menu i.tile { background: rgba(255, 255, 255, .08); }
 .mk-menu b { display: block; font-size: calc(16px * var(--s)); font-weight: 600; color: var(--ink); }
 .mk-menu s { display: block; text-decoration: none; font-size: calc(12.5px * var(--s)); color: var(--muted); margin-top: 2px; }

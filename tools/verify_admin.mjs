@@ -70,6 +70,53 @@ const gir = async (p, tc, sifre) => {
   await p.close();
 }
 
+/* ============ 1b) YONETIM PANELI: gercek islem ============ */
+{
+  const p = await (await b.newContext({ viewport: { width: 1500, height: 980 } })).newPage();
+  dinle(p, "admin-islem");
+  await gir(p, ADMIN_TC, ADMIN_SIFRE);
+  await (await p.$('button[title="Admin"]')).click(); await p.waitForTimeout(2200);
+
+  // yonetici kilidini ac
+  const kilit = await p.$('button:has-text("Kilidi aç")');
+  ok("kilit çubuğu var", Boolean(kilit));
+  if (kilit) {
+    await kilit.click(); await p.waitForTimeout(700);
+    const sifre = await p.$('.ac-dialog input[type="password"], dialog input[type="password"], input[type="password"]');
+    if (!sifre) ok("kilit şifre kutusu", false);
+    else {
+      await sifre.fill(ADMIN_SIFRE);
+      await p.keyboard.press("Enter"); await p.waitForTimeout(1500);
+      const acik = await p.$('text="Yönetici kilidi açık"');
+      ok("yönetici kilidi açıldı", Boolean(acik));
+    }
+  }
+
+  // Para Yatirma Talepleri -> ilk talebi onayla
+  const menuBtn = await p.$('button:has-text("Para Yatırma Talepleri")');
+  if (!menuBtn) ok("yatırma talepleri sayfası", false, "menüde yok");
+  else {
+    await menuBtn.click(); await p.waitForTimeout(1400);
+    const oncekiMetin = (await p.innerText("main")).replace(/\s+/g, " ");
+    const onayla = await p.$('main button:has-text("Onayla")');
+    ok("onaylanacak talep var", Boolean(onayla), oncekiMetin.slice(0, 80));
+    if (onayla) {
+      await onayla.click(); await p.waitForTimeout(800);
+      // gerekce kutusu cikarsa doldur
+      const gerekce = await p.$('main textarea, main input[placeholder*="erekçe"], dialog textarea, dialog input');
+      if (gerekce) { await gerekce.fill("Dekont dogrulandi, tutar eslesiyor"); await p.waitForTimeout(300);
+        const onay2 = await p.$('dialog button:has-text("Onayla"), .ac-dialog button:has-text("Onayla"), main button:has-text("Onayla")');
+        if (onay2) { await onay2.click(); }
+      }
+      await p.waitForTimeout(2200);
+      const sonraki = (await p.innerText("main")).replace(/\s+/g, " ");
+      ok("talep onaylandı", sonraki !== oncekiMetin, sonraki.slice(0, 90));
+      await p.screenshot({ path: `${SHOT}/adm-onay.png` });
+    }
+  }
+  await p.close();
+}
+
 /* ============ 2) YONETIM PANELI (telefon) ============ */
 {
   const ctx = await b.newContext({ viewport: { width: 390, height: 780 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });

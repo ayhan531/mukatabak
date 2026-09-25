@@ -696,8 +696,11 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "audit_logs", "request_id", "TEXT DEFAULT ''")
     conn.execute("UPDATE t2_settlements SET remaining_amount=amount WHERE status='pending' AND remaining_amount<=0")
     conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE account_no IS NULL OR account_no=''")
-    conn.execute("UPDATE users SET account_no='GM' || substr(account_no, 3) WHERE account_no LIKE 'FY%'")
-    conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'AU%' OR account_no LIKE 'PM%' OR account_no LIKE 'GM%'")
+    conn.execute(
+        "UPDATE users SET account_no='MK' || substr(account_no, 3)"
+        " WHERE account_no LIKE 'FY%' OR account_no LIKE 'AU%'"
+        " OR account_no LIKE 'PM%' OR account_no LIKE 'GM%'"
+    )
     # Eski OT on ekli hesap numaralari MK on ekine tasinir.
     conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'OT%'")
     conn.execute("UPDATE system_bank_accounts SET is_active=0 WHERE REPLACE(iban, ' ', '') LIKE 'TR00%'")
@@ -743,7 +746,8 @@ def migrate_brand_data(conn: sqlite3.Connection) -> None:
             "Mukatabak Yatırım",
         ),
     )
-    conn.execute("UPDATE users SET account_no='PM' || substr(account_no, 3) WHERE account_no LIKE 'GM%'")
+    # Eski marka on ekleri (FY/AU/PM/GM/OT) yukaridaki gocte MK'ye tasiniyor;
+    # burada tekrar degistirmek numaralari bozardi.
 
 
 def ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
@@ -3765,6 +3769,8 @@ class AppHandler(BaseHTTPRequestHandler):
                  now() if status == "approved" else None),
             )
             uid = int(cur.lastrowid)
+            # Panelden acilan musteri de hesap numarasini hemen alir.
+            conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (uid,))
             conn.execute("INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, ?, 0, 0)", (uid, opening))
             if opening:
                 conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (opening, uid))
@@ -4935,8 +4941,8 @@ def notification_rows(conn: sqlite3.Connection, user_id: int) -> list[dict]:
 def public_user(user: dict, include_sensitive: bool = False) -> dict:
     data = {
         "id": user["id"],
-        "account_no": user.get("account_no") or f"GM{int(user['id']):06d}",
-        "referral_code": user.get("account_no") or f"GM{int(user['id']):06d}",
+        "account_no": user.get("account_no") or f"MK{int(user['id']):06d}",
+        "referral_code": user.get("account_no") or f"MK{int(user['id']):06d}",
         "avatar_url": user.get("avatar_url") or "",
         "full_name": user["full_name"],
         "phone": user["phone"],

@@ -186,7 +186,8 @@ const fmt = (value, digits = 2) =>
 function MarketBand({ quotes }) {
   const by = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const rows = BANT.map(([code, label]) => [label, by.get(code)]).filter(([, quote]) => quote);
-  if (rows.length < 4) return null;
+  /* Veri yokken de yer tutulur; yoksa bant sonradan acilip sayfayi kaydiriyordu. */
+  if (rows.length < 4) return <div className="corporate-band bos" aria-hidden="true" />;
   const hucre = (label, quote, key) => {
     const up = Number(quote.change_pct || 0) >= 0;
     return (
@@ -210,7 +211,18 @@ function MarketBand({ quotes }) {
 function LiveTicker({ quotes }) {
   const by = new Map(quotes.map((quote) => [quote.symbol, quote]));
   const rows = TICKERS.map(([code, label]) => [label, by.get(code)]).filter(([, quote]) => quote);
-  if (!rows.length) return null;
+  if (!rows.length) {
+    /* Iskelet: kartlarla ayni yukseklikte, boylece veri gelince sayfa oynamaz. */
+    return (
+      <div className="corporate-ticker-wrap bos" aria-hidden="true">
+        <div className="corporate-ticker">
+          <div className="corporate-ticker-iskelet">
+            {[0, 1, 2, 3, 4, 5, 6].map((n) => <i key={n} />)}
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="corporate-ticker-wrap">
       <div className="corporate-ticker">

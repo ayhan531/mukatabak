@@ -56,8 +56,8 @@
 .corporate-nav {
   position: sticky; top: 0; z-index: 40;
   display: flex; align-items: center; gap: 22px;
-  min-height: 76px;
-  padding: 12px max(20px, calc((100% - var(--max)) / 2));
+  height: 76px; min-height: 76px;
+  padding: 0 max(20px, calc((100% - var(--max)) / 2));
   background: rgba(247, 249, 253, .72);
   backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
   border-bottom: 1px solid transparent;
@@ -68,7 +68,7 @@
   border-bottom-color: var(--line);
   box-shadow: 0 6px 20px rgba(30, 44, 96, .05);
 }
-.corporate-nav .brand { font-size: 26px; flex: none; }
+.corporate-nav .brand { font-size: 26px; flex: none; line-height: 1.15; white-space: nowrap; }
 .corporate-nav nav { display: flex; gap: 2px; margin-left: auto; align-items: center; }
 .corporate-nav nav a {
   font-size: 14px; font-weight: 500; white-space: nowrap;
@@ -82,7 +82,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   background: var(--ink); color: #fff;
   border-radius: 12px; padding: 12px 20px;
-  font-size: 14.5px; font-weight: 600; white-space: nowrap;
+  font-size: 14.5px; font-weight: 600; white-space: nowrap; line-height: 1.2;
   box-shadow: var(--shadow-sm);
   transition: transform .18s, box-shadow .18s, background .18s;
 }
@@ -510,7 +510,7 @@
 
 @media (max-width: 860px) {
   .corporate-menu { display: grid; place-items: center; }
-  .corporate-nav { min-height: 66px; gap: 12px; }
+  .corporate-nav { height: 66px; min-height: 66px; gap: 12px; }
   .corporate-nav nav { display: none; }
   .corporate-nav nav.open {
     display: grid; position: absolute; top: 100%; left: 0; right: 0;
@@ -696,7 +696,7 @@
 .corporate-register{
   display:inline-flex;align-items:center;gap:7px;
   padding:11px 17px;border-radius:12px;
-  font-size:14.5px;font-weight:600;color:var(--ink);
+  font-size:14.5px;font-weight:600;color:var(--ink);line-height:1.2;white-space:nowrap;
   background:rgba(255,255,255,.9);border:1px solid var(--line);
   box-shadow:var(--shadow-sm);transition:transform .18s,box-shadow .18s;
 }
@@ -706,3 +706,30 @@
   .corporate-login{margin-left:8px}
 }
 @media(max-width:420px){ .corporate-register{display:none} }
+
+
+/* ---------------------------------------------------------- kayma onleme */
+/* Veri gelmeden once bant ve serit yoktu, veri gelince aniden aciliyor ve
+   altindaki her sey asagi kayiyordu (CLS). Iskelet ayni yuksekligi tutar. */
+.corporate-band { min-height: 38px; }
+.corporate-band.bos { background: #0d1430; }
+.corporate-ticker-wrap.bos .corporate-ticker { min-height: 92px; }
+.corporate-ticker-iskelet {
+  display: flex; gap: 12px; width: 100%;
+}
+.corporate-ticker-iskelet i {
+  flex: none; min-width: 168px; height: 92px; border-radius: 16px;
+  background: linear-gradient(100deg, #f2f5fb 30%, #e8edf7 50%, #f2f5fb 70%);
+  background-size: 260% 100%; animation: corporate-iskelet 1.5s linear infinite;
+  border: 1px solid var(--line);
+}
+@keyframes corporate-iskelet { from { background-position: 130% 0; } to { background-position: -30% 0; } }
+@media (prefers-reduced-motion: reduce) { .corporate-ticker-iskelet i { animation: none; } }
+
+/* Fiyat rakamlari esit genislikte olsun; her guncellemede satir oynamasin. */
+.corporate-ticker strong, .corporate-ticker em,
+.corporate-band-lane i, .corporate-band-lane em,
+.pm-tile strong, .pm-tile em, .pm-price b, .pm-price em {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}

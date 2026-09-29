@@ -21,27 +21,27 @@
   --s: 1;
 
   /* Vurgu rengi (Design.Accents[0] = Mor) */
-  --purple: #7054f6;
-  --lavender: #f0ecff;
+  --purple: #3b6cff;
+  --lavender: #e3ecff;
 
   --ink: #101321;
   --muted: #848793;
   --soft: #f5f5f8;
   --edge: #ebecf1;
   --green: #168b70;
-  --red: #d95577;
-  --rose: #fce9ef;
+  --red: #e5484d;
+  --rose: #fdeaea;
   --tint-green: #e7f6ee;
   --ink-green: #1e9e6a;
-  --tint-blue: #e8f1fe;
-  --ink-blue: #2f72e8;
+  --tint-blue: #fef1e3;
+  --ink-blue: #e3922f;
   --tint-orange: #fef1e3;
   --ink-orange: #e3922f;
   --canvas: #ffffff;
   --surface: #ffffff;
   --glow: #faf9ff;
   --backdrop: rgba(11, 16, 32, 0.4);
-  --shadow-card: 0 10px 22px rgba(112, 84, 246, 0.3);
+  --shadow-card: 0 10px 22px rgba(60, 119, 113, 0.35);
   --shadow-pop: 0 6px 18px rgba(0, 0, 0, 0.18);
 
   --page-pad: 16px;
@@ -54,12 +54,12 @@
   --soft: #262830;
   --edge: #343640;
   --green: #2ca684;
-  --red: #d6657f;
-  --rose: #3a2631;
+  --red: #ff5c5c;
+  --rose: #3a2323;
   --tint-green: #1b372c;
   --ink-green: #37af82;
-  --tint-blue: #1c2b3e;
-  --ink-blue: #5187db;
+  --tint-blue: #3a2c20;
+  --ink-blue: #d49447;
   --tint-orange: #3a2c20;
   --ink-orange: #d49447;
   --canvas: #171922;
@@ -70,8 +70,8 @@
 }
 
 /* Design.Accents — açık / gece / soluk açık / soluk gece */
-[data-accent="0"] { --purple: #7054f6; --lavender: #f0ecff; }
-[data-accent="1"] { --purple: #2f72e8; --lavender: #e8f1fe; }
+[data-accent="0"] { --purple: #3b6cff; --lavender: #e3ecff; }
+[data-accent="1"] { --purple: #3b6cff; --lavender: #e3ecff; }
 [data-accent="2"] { --purple: #0e9aa7; --lavender: #e3f6f8; }
 [data-accent="3"] { --purple: #1e9e6a; --lavender: #e7f6ee; }
 [data-accent="4"] { --purple: #e3922f; --lavender: #fef1e3; }
@@ -80,8 +80,8 @@
 [data-accent="7"] { --purple: #2b3a8c; --lavender: #e9ecfa; }
 [data-accent="8"] { --purple: #4b5563; --lavender: #eef0f3; }
 
-[data-theme="dark"][data-accent="0"] { --purple: #7b69de; --lavender: #2b2647; }
-[data-theme="dark"][data-accent="1"] { --purple: #5187db; --lavender: #1c2b3e; }
+[data-theme="dark"][data-accent="0"] { --purple: #4c79ff; --lavender: #22304f; }
+[data-theme="dark"][data-accent="1"] { --purple: #4c79ff; --lavender: #22304f; }
 [data-theme="dark"][data-accent="2"] { --purple: #30a7b2; --lavender: #173338; }
 [data-theme="dark"][data-accent="3"] { --purple: #37af82; --lavender: #1b372c; }
 [data-theme="dark"][data-accent="4"] { --purple: #d49447; --lavender: #3a2c20; }
@@ -314,9 +314,11 @@ html:has(body.esube-open), body.esube-open { height: 100%; overscroll-behavior: 
   gap: 8px;
   align-items: center;
   background: var(--soft);
+  border: 0;
   border-radius: 14px;
   padding: 0 12px;
   color: var(--muted);
+  box-shadow: none;
 }
 
 .esube .searchbox input, .overlay .searchbox input {
@@ -325,6 +327,26 @@ html:has(body.esube-open), body.esube-open { height: 100%; overscroll-behavior: 
   color: var(--ink);
   width: 100%;
   min-width: 0;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+.esube .searchbox input:focus, .overlay .searchbox input:focus,
+.esube .searchbox:focus-within, .overlay .searchbox:focus-within {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.esube .searchbox input::-webkit-search-decoration,
+.esube .searchbox input::-webkit-search-cancel-button,
+.esube .searchbox input::-webkit-search-results-button,
+.esube .searchbox input::-webkit-search-results-decoration {
+  display: none;
 }
 
 .esube .searchbox .clear, .overlay .searchbox .clear { color: var(--muted); display: flex; }
@@ -588,8 +610,9 @@ html:has(body.esube-open), body.esube-open { height: 100%; overscroll-behavior: 
 .esube .page-head h1.t22, .overlay .page-head h1.t22 { font-size: calc(22px * var(--s)); text-align: left; }
 
 /* ---------- hesap ekranı ---------- */
-.esube .pcard, .overlay .pcard { display: grid; grid-template-columns: 44px 1fr auto; gap: 11px; align-items: center; padding: 15px; width: 100%; }
-.esube .pcard .who, .overlay .pcard .who { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.esube .pcard, .overlay .pcard { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 22px 15px; width: 100%; }
+.esube .pcard .who, .overlay .pcard .who { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.esube .pcard .pcard-chevron, .overlay .pcard .pcard-chevron { position: absolute; top: 16px; right: 16px; }
 .esube .pcard .who strong, .overlay .pcard .who strong { font-size: calc(15.5px * var(--s)); font-weight: 700; }
 .esube .pcard .who span, .overlay .pcard .who span { font-size: calc(12px * var(--s)); color: var(--muted); }
 
@@ -621,6 +644,15 @@ html:has(body.esube-open), body.esube-open { height: 100%; overscroll-behavior: 
   display: flex; align-items: center; justify-content: center;
 }
 .esube .quick-grid span, .overlay .quick-grid span { font-size: calc(10px * var(--s)); text-align: center; line-height: 1.25; }
+.esube .tile-btn.tile-passive, .overlay .tile-btn.tile-passive { opacity: .45; filter: grayscale(.6); }
+.esube .tile-btn.tile-passive .tile, .overlay .tile-btn.tile-passive .tile { background: var(--soft) !important; color: var(--muted) !important; }
+
+.esube .kyc-banner, .overlay .kyc-banner {
+  display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+  border-color: var(--red, #e5484d); background: color-mix(in srgb, var(--red, #e5484d) 8%, transparent);
+  cursor: pointer;
+}
+.esube .kyc-banner span, .overlay .kyc-banner span { flex: 1; font-size: calc(12.5px * var(--s)); font-weight: 600; color: var(--red, #e5484d); }
 
 .esube .list-card, .overlay .list-card { padding: 3px 15px; }
 .esube .list-row, .overlay .list-row { display: grid; grid-template-columns: 1fr 18px; gap: 8px; align-items: center; padding: 12px 0; width: 100%; }
@@ -907,7 +939,7 @@ html:has(body.esube-open), body.esube-open { height: 100%; overscroll-behavior: 
 .esube .pf-mini, .overlay .pf-mini { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
 .esube .pf-mini span, .overlay .pf-mini span { font-size: calc(12.5px * var(--s)); color: rgba(255, 255, 255, 0.72); display: block; margin-bottom: 4px; }
 .esube .pf-mini b, .overlay .pf-mini b { font-size: calc(16px * var(--s)); font-weight: 700; }
-.esube .pf-alloc, .overlay .pf-alloc { min-width: 0; grid-column: 2; grid-row: 2 / span 3; align-self: end; justify-self: end; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.esube .pf-alloc, .overlay .pf-alloc { min-width: 0; grid-column: 2; grid-row: 2 / span 3; align-self: start; justify-self: end; display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 2px; }
 .esube .pf-legend, .overlay .pf-legend { display: flex; flex-direction: column; gap: 4px; }
 .esube .pf-legend div, .overlay .pf-legend div { display: inline-flex; align-items: center; gap: 6px; font-size: calc(11.5px * var(--s)); font-weight: 700; color: rgba(255, 255, 255, 0.72); white-space: nowrap; }
 .esube .pf-legend i, .overlay .pf-legend i { width: 9px; height: 9px; border-radius: 4.5px; display: block; }

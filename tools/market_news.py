@@ -197,6 +197,16 @@ FINANS = (
 )
 FINANS_KALIP = _kalip(FINANS)
 
+# Genel "ekonomi" kategorisinde çıkan ama borsa/yatırımcı için konu dışı olan
+# tüketici haberleri: kira, asgari ücret, memur/emekli maaşı, SGK vb. Bu
+# başlıklar bazen FINANS_KALIP'teki genel kelimelerle (ör. "enflasyon")
+# eşleşip sızabiliyor; ayrı bir kara liste ile kesin olarak eleniyor.
+KONU_DISI = _kalip((
+    "kira*", "kiracı*", "ev sahibi*", "asgari ücret*", "memur*", "emekli*",
+    "eyt", "sgk", "bayram ikramiye*", "kyk", "öğrenci burs*", "engelli maaş*",
+    "yaşlı maaş*", "evde bakım*", "nafaka*",
+))
+
 # Türkiye piyasası işareti: yabancı borsa haberlerini BIST sekmelerinden ayırır.
 TURKIYE = (
     "bist", "borsa istanbul", "türkiye*", "türk", "tcmb", "merkez bankası", "spk", "kap",
@@ -299,7 +309,7 @@ def _bing_oku(sekme: int, simdi: float) -> list[dict]:
         gorulen.add(anahtar)
         ozet = duz_metin(dugum.findtext("description"))
         metin = katla(baslik + " " + ozet)
-        if not FINANS_KALIP.search(metin):
+        if not FINANS_KALIP.search(metin) or KONU_DISI.search(metin):
             continue
         if NON_LATIN.search(baslik):
             continue
@@ -307,8 +317,8 @@ def _bing_oku(sekme: int, simdi: float) -> list[dict]:
             damga = parsedate_to_datetime(dugum.findtext("pubDate") or "").timestamp()
         except (TypeError, ValueError, OverflowError):
             damga = simdi
-        if damga < simdi - 10 * 86400:
-            continue
+        if damga < simdi - 2 * 86400:
+            continue  # 2 gunden eski haber havuza hic girmesin (guncellik icin)
         kaynak = (dugum.findtext("{%s}Source" % ns) or "").strip() if ns else ""
         adaylar.append({
             "id": baglanti,
@@ -414,14 +424,14 @@ def _besleme_oku(ad: str, adres: str, simdi: float, gorsel_sart: bool) -> list[d
             continue
         ozet = duz_metin(dugum.findtext("description"))
         metin = katla(baslik + " " + ozet)
-        if not FINANS_KALIP.search(metin):
+        if not FINANS_KALIP.search(metin) or KONU_DISI.search(metin):
             continue
         try:
             damga = parsedate_to_datetime(dugum.findtext("pubDate") or "").timestamp()
         except (TypeError, ValueError, OverflowError):
             damga = simdi
-        if damga > simdi + 3600 or damga < simdi - 10 * 86400:
-            continue
+        if damga > simdi + 3600 or damga < simdi - 2 * 86400:
+            continue  # 2 gunden eski haber havuza hic girmesin (guncellik icin)
         cikti.append({
             "id": baglanti,
             "title": baslik,
@@ -579,7 +589,7 @@ def sekme_haberleri(sekme: int, en_az: int = 12) -> tuple[list[dict], dict]:
             ekle(haber)
 
     temiz = []
-    for haber in secilen[:40]:
+    for haber in secilen[:25]:
         temiz.append({k: v for k, v in haber.items()
                       if not k.startswith("_") and k not in ("kodlar", "turkiye")})
     bilgi = {

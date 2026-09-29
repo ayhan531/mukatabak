@@ -34,11 +34,9 @@ function useLock() {
   const [soru, setSoru] = useState(null); // { çöz, reddet }
   const gecerli = () => Date.now() < until;
 
-  // Kritik işlemden önce çağrılır: kilit açıksa hemen, değilse şifre sorar.
-  const ensure = useCallback(() => {
-    if (Date.now() < until) return Promise.resolve(true);
-    return new Promise((resolve) => setSoru({ resolve }));
-  }, [until]);
+  // Patron talebiyle kaldırıldı: kritik işlemlerde artık admin şifresi
+  // tekrar sorulmuyor, doğrudan izin veriliyor.
+  const ensure = useCallback(() => Promise.resolve(true), []);
 
   const dogrula = async (password) => {
     await api("/api/admin/step-up", { method: "POST", body: JSON.stringify({ password }) });
@@ -122,11 +120,11 @@ function UserEditor({ user, onClose, onNotice, ensure, refresh }) {
     full_name: user.full_name || "", phone: user.phone || "", email: user.email || "",
     city: user.city || "", district: user.district || "", birth_date: user.birth_date || "",
     address: user.address || "", kyc_note: user.kyc_note || "", status: user.status || "pending",
+    tc: user.tc || "",
   });
   const [busy, setBusy] = useState("");
   const [history, setHistory] = useState([]);
   const [positions, setPositions] = useState([]);
-  const [balance, setBalance] = useState({ action: "set", amount: "", note: "" });
   const [position, setPosition] = useState({ action: "set", symbol: "", quantity: "", price: "", note: "" });
   const [hesap, setHesap] = useState(null);
   const [yeniSifre, setYeniSifre] = useState("");
@@ -161,34 +159,12 @@ function UserEditor({ user, onClose, onNotice, ensure, refresh }) {
   const kaydet = () => calistir("profil", () =>
     api(`/api/admin/users/${user.id}`, { method: "POST", body: JSON.stringify(form) }));
 
-  const bakiyeUygula = () => {
-    const tutar = Number(String(balance.amount).replace(",", "."));
-    if (!Number.isFinite(tutar) || tutar < 0) return onNotice("Tutar hatalı", "Sıfır ya da üzeri bir tutar gir.");
-    if (balance.note.trim().length < 8) return onNotice("Gerekçe kısa", "Finansal değişiklik için en az 8 karakter gerekçe yaz.");
-    return calistir("bakiye", () => api("/api/admin/balances", {
-      method: "POST",
-      body: JSON.stringify({ user_id: user.id, action: balance.action, amount: tutar, note: balance.note.trim() }),
-    }));
-  };
-
-  /* "Silme": nakit bakiyeyi sıfıra çeker. Gerekçe alanı boşsa kendi
-     gerekçesini yazar, çünkü sunucu gerekçesiz finansal değişiklik kabul etmiyor. */
-  const bakiyeSifirla = () => {
-    if (!window.confirm(`${user.full_name} hesabının nakit bakiyesi sıfırlanacak. Onaylıyor musun?`)) return undefined;
-    const gerekce = balance.note.trim().length >= 8 ? balance.note.trim() : "Bakiye admin tarafından sıfırlandı";
-    return calistir("bakiye", () => api("/api/admin/balances", {
-      method: "POST",
-      body: JSON.stringify({ user_id: user.id, action: "set", amount: 0, note: gerekce }),
-    }));
-  };
-
   const pozisyonUygula = () => {
     const adet = Number(position.quantity);
     const fiyat = Number(String(position.price).replace(",", "."));
     if (!position.symbol.trim()) return onNotice("Sembol gerekli", "Örnek: THYAO");
     if (!Number.isFinite(adet) || adet < 0) return onNotice("Adet hatalı", "Sıfır ya da üzeri bir adet gir.");
     if (!Number.isFinite(fiyat) || fiyat <= 0) return onNotice("Fiyat hatalı", "Sıfırdan büyük bir fiyat gir.");
-    if (position.note.trim().length < 8) return onNotice("Gerekçe kısa", "Portföy değişikliği için en az 8 karakter gerekçe yaz.");
     return calistir("pozisyon", () => api("/api/admin/positions", {
       method: "POST",
       body: JSON.stringify({
@@ -217,7 +193,7 @@ function UserEditor({ user, onClose, onNotice, ensure, refresh }) {
   };
 
   const nakit = Number(hesap?.cash_balance ?? user.cash_balance ?? 0);
-  const bloke = Number(hesap?.blocked_balance ?? 0);
+  const bloke = Number(hesap?.orders_reserved ?? 0);
   const kredi = Number(hesap?.credit_limit ?? 0);
 
   return (
@@ -238,6 +214,10 @@ function UserEditor({ user, onClose, onNotice, ensure, refresh }) {
           <div className="ac-form">
             <Field label="Ad soyad"><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></Field>
             <Field label="Telefon"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+            <Field label="T.C. Kimlik No">
+              <Input value={form.tc} maxLength={11} inputMode="numeric" onChange={(e) => setForm({ ...form, tc: e.target.value.replace(/\D/g, "").slice(0, 11) })} />
+              {form.tc && !gecerliTc(form.tc) && <small className="ac-hint kirmizi">{tcHatasi(form.tc)}</small>}
+            </Field>
             <Field label="E-posta"><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
             <Field label="Doğum tarihi"><Input value={form.birth_date} placeholder="1990-01-01" onChange={(e) => setForm({ ...form, birth_date: e.target.value })} /></Field>
             <Field label="İl"><Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></Field>
@@ -247,24 +227,6 @@ function UserEditor({ user, onClose, onNotice, ensure, refresh }) {
             <Field label="Uyum notu" wide><Input value={form.kyc_note} onChange={(e) => setForm({ ...form, kyc_note: e.target.value })} /></Field>
           </div>
           <button className="confirm" disabled={busy === "profil"} onClick={kaydet}>{busy === "profil" ? "Kaydediliyor…" : "Bilgileri kaydet"}</button>
-        </Section>
-
-        <Section title="Bakiye" note="Ana bakiyeyi belirle, ekle, düş ya da kredi limiti tanımla">
-          <div className="ac-form">
-            <Field label="İşlem">
-              <Select
-                value={balance.action}
-                onChange={(v) => setBalance({ ...balance, action: v })}
-                options={[["set", "Bakiyeyi şuna eşitle"], ["add", "Bakiyeye ekle"], ["subtract", "Bakiyeden düş"], ["credit", "Kredi limiti ekle"]]}
-              />
-            </Field>
-            <Field label="Tutar (₺)"><Input inputMode="decimal" value={balance.amount} onChange={(e) => setBalance({ ...balance, amount: e.target.value })} /></Field>
-            <Field label="Gerekçe (en az 8 karakter)" wide><Input value={balance.note} onChange={(e) => setBalance({ ...balance, note: e.target.value })} /></Field>
-          </div>
-          <div className="ac-actions">
-            <button className="ac-danger" disabled={busy === "bakiye"} onClick={bakiyeSifirla}>Bakiyeyi sıfırla</button>
-            <button className="confirm" disabled={busy === "bakiye"} onClick={bakiyeUygula}>{busy === "bakiye" ? "Uygulanıyor…" : "Bakiyeyi uygula"}</button>
-          </div>
         </Section>
 
         <Section title="Portföy" note="Kullanıcının pozisyonlarını doğrudan ayarla">
@@ -289,7 +251,7 @@ function UserEditor({ user, onClose, onNotice, ensure, refresh }) {
             <Field label="Sembol"><Input value={position.symbol} placeholder="THYAO" onChange={(e) => setPosition({ ...position, symbol: e.target.value.toUpperCase() })} /></Field>
             <Field label="Adet (lot)"><Input inputMode="numeric" value={position.quantity} onChange={(e) => setPosition({ ...position, quantity: e.target.value })} /></Field>
             <Field label="Ortalama fiyat"><Input inputMode="decimal" value={position.price} onChange={(e) => setPosition({ ...position, price: e.target.value })} /></Field>
-            <Field label="Gerekçe (en az 8 karakter)" wide><Input value={position.note} onChange={(e) => setPosition({ ...position, note: e.target.value })} /></Field>
+            <Field label="Gerekçe (opsiyonel)" wide><Input value={position.note} onChange={(e) => setPosition({ ...position, note: e.target.value })} /></Field>
           </div>
           <button className="confirm" disabled={busy === "pozisyon"} onClick={pozisyonUygula}>{busy === "pozisyon" ? "Uygulanıyor…" : "Pozisyonu uygula"}</button>
         </Section>
@@ -350,11 +312,32 @@ const kopyala = async (metin) => {
   try { await navigator.clipboard.writeText(metin); return true; } catch { return false; }
 };
 
+/** IBAN gibi kısa değerleri tek tıkla panoya kopyalar; kısa bir "Kopyalandı" geri bildirimi gösterir. */
+function KopyaBtn({ metin, label = "Kopyala" }) {
+  const [tamam, setTamam] = useState(false);
+  if (!metin) return null;
+  return (
+    <button
+      type="button"
+      className="ac-ghost ac-kopya"
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (await kopyala(metin)) {
+          setTamam(true);
+          setTimeout(() => setTamam(false), 1400);
+        }
+      }}
+    >
+      {tamam ? "Kopyalandı" : label}
+    </button>
+  );
+}
+
 function BankaKarti({ hesap, ilk, son, onDuzenle, onIslem, onTasi }) {
   return (
     <article className="bk-card">
       <header>
-        <h4>{hesap.bank_name}{Number(hesap.is_active) ? "" : <em className="bk-pasif">Pasif</em>}</h4>
+        <h4>{hesap.bank_name}{Number(hesap.is_active) ? <em className="bk-aktif">Aktif</em> : <em className="bk-pasif">Pasif</em>}</h4>
         <div className="bk-araclar">
           <button className="bk-ok" disabled={ilk} onClick={() => onTasi(hesap, -1)} aria-label="Yukarı taşı">↑</button>
           <button className="bk-ok" disabled={son} onClick={() => onTasi(hesap, 1)} aria-label="Aşağı taşı">↓</button>
@@ -363,7 +346,7 @@ function BankaKarti({ hesap, ilk, son, onDuzenle, onIslem, onTasi }) {
         </div>
       </header>
       <dl>
-        <div><dt>IBAN:</dt><dd>{hesap.iban}</dd></div>
+        <div className="bk-iban-satir"><dt>IBAN:</dt><dd>{hesap.iban}</dd><KopyaBtn metin={hesap.iban} /></div>
         <div><dt>Hesap Sahibi:</dt><dd>{hesap.account_holder}</dd></div>
         {hesap.branch_name && <div><dt>Şube:</dt><dd>{hesap.branch_name}</dd></div>}
         {hesap.description && (
@@ -494,6 +477,7 @@ function BankPanel({ onNotice, ensure }) {
           {(veri.user_bank_accounts || []).map((hesap) => (
             <div className="ac-line" key={hesap.id}>
               <span><strong>{hesap.full_name || hesap.account_holder}</strong><small>{hesap.bank_name} · {hesap.iban}</small></span>
+              <KopyaBtn metin={hesap.iban} />
             </div>
           ))}
           {!(veri.user_bank_accounts || []).length && <div className="ac-line"><span><strong>Kayıt yok</strong><small>Müşteriler henüz IBAN eklememiş</small></span></div>}
@@ -722,8 +706,8 @@ function DocumentsPanel({ documents, ensure, onNotice, refresh }) {
 
   const islem = async (belge, eylem) => {
     const not = gerekce.trim();
-    if (eylem !== "approve" && not.length < 8) {
-      return onNotice("Gerekçe kısa", "Ret ya da yeniden isteme için en az 8 karakterlik gerekçe yaz.");
+    if (eylem !== "approve" && !not) {
+      return onNotice("Gerekçe gerekli", "Müşterinin ne yapması gerektiğini anlaması için kısa bir gerekçe yaz.");
     }
     if (!(await ensure())) return;
     setBusy(belge.id);
@@ -745,7 +729,7 @@ function DocumentsPanel({ documents, ensure, onNotice, refresh }) {
   return (
     <Section title="Kimlik belgeleri" note={`${sayilar.pending} bekleyen · ${documents.length} belge`}>
       <div className="ac-form">
-        <Field label="Ret / yeniden isteme gerekçesi (en az 8 karakter)" wide>
+        <Field label="Ret / yeniden isteme gerekçesi (müşteriye gösterilir)" wide>
           <Input value={gerekce} onChange={(e) => setGerekce(e.target.value)} placeholder="Örn: Fotoğraf bulanık, bilgiler okunmuyor" />
         </Field>
       </div>
@@ -818,7 +802,7 @@ function ApprovalList({ title, note, items, render, onAct, ensure, onNotice, ref
   const [busy, setBusy] = useState(0);
   const calistir = async (item, action) => {
     const gerekce = reason.trim();
-    if (reasonRequired && gerekce.length < 8) return onNotice("Gerekçe kısa", "Onay veya ret için en az 8 karakter gerekçe yaz.");
+
     if (!(await ensure())) return;
     setBusy(item.id);
     try {
@@ -834,13 +818,11 @@ function ApprovalList({ title, note, items, render, onAct, ensure, onNotice, ref
   };
   return (
     <Section title={title} note={note}>
-      {reasonRequired && (
-        <div className="ac-form">
-          <Field label="Gerekçe (onay/ret için zorunlu, en az 8 karakter)" wide>
-            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Örn: Dekont doğrulandı" />
-          </Field>
-        </div>
-      )}
+      <div className="ac-form">
+        <Field label="Gerekçe (opsiyonel)" wide>
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Örn: Dekont doğrulandı" />
+        </Field>
+      </div>
       <div className="ac-list scroll">
         {items.length === 0 && <div className="ac-line"><span><strong>Kayıt yok</strong><small>Bekleyen bir şey yok</small></span></div>}
         {items.map((item) => (
@@ -1146,7 +1128,7 @@ function PortfolioPanel({ users = [], onNotice, ensure }) {
   const [query, setQuery] = useState("");
   const [kisi, setKisi] = useState("hepsi");
   const [duzenlenen, setDuzenlenen] = useState(null);
-  const [form, setForm] = useState({ quantity: "", price: "", note: "" });
+  const [form, setForm] = useState({ quantity: "", price: "", totalCost: "", valueOverride: "", note: "" });
   const [busy, setBusy] = useState(false);
 
   const liste = useMemo(() => {
@@ -1171,6 +1153,8 @@ function PortfolioPanel({ users = [], onNotice, ensure }) {
           user_id: duzenlenen.user_id, symbol: duzenlenen.symbol, action: "set",
           quantity: Number(form.quantity) || 0,
           price: Number(String(form.price).replace(",", ".")) || duzenlenen.avg_price,
+          total_cost: form.totalCost.trim() ? String(form.totalCost).replace(",", ".") : "",
+          value_override: form.valueOverride.trim() ? String(form.valueOverride).replace(",", ".") : "",
           note: form.note.trim().length >= 8 ? form.note.trim() : "Pozisyon admin tarafından düzenlendi",
         }),
       });
@@ -1239,7 +1223,7 @@ function PortfolioPanel({ users = [], onNotice, ensure }) {
                   </td>
                   <td className="sag">
                     <span className="ac-poz-islem">
-                      <button className="ac-ghost kare" aria-label="Düzenle" onClick={() => { setDuzenlenen(p); setForm({ quantity: String(p.quantity), price: String(p.avg_price), note: "" }); }}>
+                      <button className="ac-ghost kare" aria-label="Düzenle" onClick={() => { setDuzenlenen(p); setForm({ quantity: String(p.quantity), price: String(p.avg_price), totalCost: String((Number(p.avg_price) || 0) * (Number(p.quantity) || 0)), valueOverride: p.value_override != null ? String(p.value_override) : "", note: "" }); }}>
                         <Icon name="sliders" size={15} />
                       </button>
                       <button className="ac-danger kare" aria-label="Sil" onClick={() => sil(p)}><Icon name="trash" size={15} /></button>
@@ -1264,7 +1248,7 @@ function PortfolioPanel({ users = [], onNotice, ensure }) {
                 <small className="kisi"><Icon name="user" size={13} /> {p.full_name} {p.account_no ? `(${p.account_no})` : `(${p.user_id})`}</small>
               </span>
               <span className="ac-poz-islem">
-                <button className="ac-ghost" aria-label="Düzenle" onClick={() => { setDuzenlenen(p); setForm({ quantity: String(p.quantity), price: String(p.avg_price), note: "" }); }}>Düzenle</button>
+                <button className="ac-ghost" aria-label="Düzenle" onClick={() => { setDuzenlenen(p); setForm({ quantity: String(p.quantity), price: String(p.avg_price), totalCost: String((Number(p.avg_price) || 0) * (Number(p.quantity) || 0)), valueOverride: p.value_override != null ? String(p.value_override) : "", note: "" }); }}>Düzenle</button>
                 <button className="ac-danger small" aria-label="Sil" onClick={() => sil(p)}>Sil</button>
               </span>
             </div>
@@ -1287,7 +1271,9 @@ function PortfolioPanel({ users = [], onNotice, ensure }) {
             <div className="ac-form">
               <Field label="Adet"><Input inputMode="numeric" value={form.quantity} onChange={(e) => setForm((x) => ({ ...x, quantity: e.target.value.replace(/\D/g, "") }))} /></Field>
               <Field label="Alış fiyatı"><Input inputMode="decimal" value={form.price} onChange={(e) => setForm((x) => ({ ...x, price: e.target.value }))} /></Field>
-              <Field label="Gerekçe (en az 8 karakter)" wide><Input value={form.note} onChange={(e) => setForm((x) => ({ ...x, note: e.target.value }))} placeholder="Örn: Müşteri talebi üzerine düzeltme" /></Field>
+              <Field label="Toplam maliyet (opsiyonel)"><Input inputMode="decimal" value={form.totalCost} onChange={(e) => setForm((x) => ({ ...x, totalCost: e.target.value }))} placeholder="Doldurulursa alış fiyatının yerine geçer" /></Field>
+              <Field label="Güncel değer fiyatı (opsiyonel)"><Input inputMode="decimal" value={form.valueOverride} onChange={(e) => setForm((x) => ({ ...x, valueOverride: e.target.value }))} placeholder="Boş bırakılırsa canlı fiyat kullanılır" /></Field>
+              <Field label="Gerekçe (opsiyonel)" wide><Input value={form.note} onChange={(e) => setForm((x) => ({ ...x, note: e.target.value }))} placeholder="Örn: Müşteri talebi üzerine düzeltme" /></Field>
             </div>
             <div className="ac-actions">
               <button className="ac-ghost" onClick={() => setDuzenlenen(null)}>Vazgeç</button>
@@ -1330,7 +1316,7 @@ function BalancePanel({ onSec, ensure, onNotice }) {
 
       <div className="ac-cards iki">
         <StatKart renk="yesil" etiket="Toplam Nakit" deger={money(topla("cash_balance"))} />
-        <StatKart renk="sari" etiket="Bloke" deger={money(topla("blocked_balance"))} />
+        <StatKart renk="sari" etiket="Bloke" deger={money(topla("orders_reserved"))} />
         <StatKart renk="mavi" etiket="T+2 Bekleyen" deger={money(topla("pending_balance"))} />
         <StatKart renk="mor" etiket="Kredi Limiti" deger={money(topla("credit_limit"))} />
       </div>
@@ -1353,7 +1339,7 @@ function BalancePanel({ onSec, ensure, onNotice }) {
               <div className="alt">
                 <div className="ac-poz-alt">
                   <span><small>Nakit</small><strong>{money(b.cash_balance)}</strong></span>
-                  <span><small>Bloke</small><strong>{money(b.blocked_balance)}</strong></span>
+                  <span><small>Bloke</small><strong>{money(b.orders_reserved)}</strong></span>
                   <span><small>T+2 bekleyen</small><strong>{money(b.pending_balance)}</strong></span>
                   <span><small>Kredi limiti</small><strong>{money(b.credit_limit)}</strong></span>
                 </div>
@@ -1385,7 +1371,6 @@ function OrdersPanel({ orders, ensure, onNotice, refresh }) {
 
   const calistir = async (order, action) => {
     const gerekce = reason.trim();
-    if (gerekce.length < 8) return onNotice("Gerekçe kısa", "Onay veya ret için en az 8 karakter gerekçe yaz.");
     if (!(await ensure())) return;
     setBusy(order.id);
     try {
@@ -1411,7 +1396,7 @@ function OrdersPanel({ orders, ensure, onNotice, refresh }) {
         ))}
       </div>
       <div className="ac-form">
-        <Field label="Gerekçe (onay/ret için zorunlu, en az 8 karakter)" wide>
+        <Field label="Gerekçe (opsiyonel)" wide>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Örn: Piyasa fiyatı doğrulandı" />
         </Field>
       </div>
@@ -1468,7 +1453,6 @@ function MoneyPanel({ moneyReqs, tur, baslik, not, ensure, onNotice, refresh }) 
 
   const calistir = async (item, action) => {
     const gerekce = reason.trim();
-    if (gerekce.length < 8) return onNotice("Gerekçe kısa", "Onay veya ret için en az 8 karakter gerekçe yaz.");
     if (!(await ensure())) return;
     setBusy(item.id);
     try {
@@ -1493,7 +1477,7 @@ function MoneyPanel({ moneyReqs, tur, baslik, not, ensure, onNotice, refresh }) 
         ))}
       </div>
       <div className="ac-form">
-        <Field label="Gerekçe (onay/ret için zorunlu, en az 8 karakter)" wide>
+        <Field label="Gerekçe (opsiyonel)" wide>
           <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Örn: Dekont doğrulandı" />
         </Field>
       </div>
@@ -1509,7 +1493,7 @@ function MoneyPanel({ moneyReqs, tur, baslik, not, ensure, onNotice, refresh }) 
               <li>Telefon: {m.phone || "—"}</li>
               <li className="miktar">Miktar: <b>{money(m.amount)}</b></li>
               <li>Tarih: {m.created_at_label || "—"}</li>
-              {m.iban && <li>IBAN: {m.iban}</li>}
+              {m.iban && <li className="ac-iban-satiri">IBAN: {m.iban} <KopyaBtn metin={m.iban} /></li>}
               {m.note && <li className="not">Not: {m.note}</li>}
               {m.admin_note && <li className="not">Not: {m.admin_note}</li>}
             </ul>
@@ -1744,8 +1728,9 @@ function PendingPanel({ users, orders, moneyReqs, onGit, onSec }) {
                 <li><Icon name="globe" size={13} /> {[u.district, u.city].filter(Boolean).join(", ") || "—"}</li>
                 <li><Icon name="list" size={13} /> {u.document_count || 0} belge</li>
               </ul>
+              {u.kyc_missing_label && <em className="ac-rozet sari">{u.kyc_missing_label}</em>}
               <footer>
-                <button className="ac-ghost" onClick={() => (onSec ? onSec(u) : onGit("Belgeler"))}>
+                <button className="ac-ghost" onClick={() => (onSec ? onSec(u) : onGit("Kullanıcı Doğrulama"))}>
                   <Icon name="eye" size={15} /> Belgeleri İncele
                 </button>
               </footer>
@@ -1975,9 +1960,16 @@ function CreditSettings({ settings, ensure, onNotice, refresh }) {
 
 /* ---------- 12b. Para yükleme ---------- */
 
-/** Referanstaki "Para Yükleme": her müşteri kartında yükle / çıkar düğmesi. */
+/** Referanstaki "Bakiye Yönetimi": her müşteri kartında yükle / çıkar düğmesi. */
+const BAKIYE_SIRALAMA = [
+  ["isim", "İsim (A-Z)"],
+  ["bakiye-yuksek", "Bakiye (yüksek-düşük)"],
+  ["bakiye-dusuk", "Bakiye (düşük-yüksek)"],
+];
+
 function LoadMoneyPanel({ users = [], ensure, onNotice, refresh }) {
   const [query, setQuery] = useState("");
+  const [siralama, setSiralama] = useState("isim");
   const [kutu, setKutu] = useState(null);   // { user, yon }
   const [form, setForm] = useState({ amount: "", note: "" });
   const [busy, setBusy] = useState(false);
@@ -1985,13 +1977,17 @@ function LoadMoneyPanel({ users = [], ensure, onNotice, refresh }) {
 
   const liste = useMemo(() => {
     const needle = fold(query);
-    return users.filter((u) => eslesir(u, ["full_name", "account_no", "email", "phone", "tc"], needle));
-  }, [users, query]);
+    const filtreli = users.filter((u) => eslesir(u, ["full_name", "account_no", "email", "phone", "tc"], needle));
+    const sirali = [...filtreli];
+    if (siralama === "bakiye-yuksek") sirali.sort((a, b) => Number(b.cash_balance || 0) - Number(a.cash_balance || 0));
+    else if (siralama === "bakiye-dusuk") sirali.sort((a, b) => Number(a.cash_balance || 0) - Number(b.cash_balance || 0));
+    else sirali.sort((a, b) => fold(a.full_name).localeCompare(fold(b.full_name), "tr"));
+    return sirali;
+  }, [users, query, siralama]);
 
   const uygula = async () => {
     const tutar = Number(String(form.amount).replace(/\./g, "").replace(",", "."));
     if (!Number.isFinite(tutar) || tutar <= 0) return onNotice("Tutar hatalı", "Sıfırdan büyük bir tutar gir.");
-    if (form.note.trim().length < 8) return onNotice("Gerekçe kısa", "En az 8 karakter gerekçe yaz.");
     if (!(await ensure())) return;
     setBusy(true);
     try {
@@ -2011,8 +2007,17 @@ function LoadMoneyPanel({ users = [], ensure, onNotice, refresh }) {
   };
 
   return (
-    <Section title="Para Yükleme" note={`${liste.length} müşteri · bakiye yükleyin ya da çıkarın`}>
-      <AraSatiri value={query} onChange={setQuery} placeholder="Ad, soyad, hesap numarası veya T.C. ile ara…" />
+    <Section title="Bakiye Yönetimi" note={`${liste.length} müşteri · bakiye yükleyin ya da çıkarın`}>
+      <AraSatiri
+        value={query}
+        onChange={setQuery}
+        placeholder="Ad, soyad, hesap numarası veya T.C. ile ara…"
+        sag={(
+          <select className="ac-select" value={siralama} onChange={(e) => setSiralama(e.target.value)} aria-label="Sıralama">
+            {BAKIYE_SIRALAMA.map(([k, ad]) => <option key={k} value={k}>{ad}</option>)}
+          </select>
+        )}
+      />
       <div className="ac-list scroll tall">
         {liste.slice(0, adet).map((u) => (
           <div className="ac-yukle" key={u.id}>
@@ -2045,7 +2050,7 @@ function LoadMoneyPanel({ users = [], ensure, onNotice, refresh }) {
             <Field label="Tutar (₺)" wide>
               <Input inputMode="decimal" value={form.amount} onChange={(e) => setForm((x) => ({ ...x, amount: e.target.value }))} placeholder="0,00" />
             </Field>
-            <Field label="Gerekçe (en az 8 karakter)" wide>
+            <Field label="Gerekçe (opsiyonel)" wide>
               <Input value={form.note} onChange={(e) => setForm((x) => ({ ...x, note: e.target.value }))} placeholder="Örn: Havale dekontu doğrulandı" />
             </Field>
             <div className="ac-actions">
@@ -2233,7 +2238,7 @@ const MENU = [
   ["Onay Bekleyenler", "check"],
   ["Banka Hesapları", "bank"],
   ["Para Yatırma Talepleri", "deposit"],
-  ["Para Yükleme", "trend"],
+  ["Bakiye Yönetimi", "trend"],
   ["Para Çekme", "withdraw"],
   ["Hisse Açıklamaları", "table"],
   ["Sistem Ayarları", "gear"],
@@ -2244,7 +2249,7 @@ const MENU = [
 const EK_MENU = [
   ["Piyasa Kontrolü", "trend"],
   ["Emirler", "swap"],
-  ["Belgeler", "history"],
+  ["Kullanıcı Doğrulama", "history"],
   ["Denetim Kaydı", "shield"],
 ];
 
@@ -2260,13 +2265,13 @@ const ALT_BASLIKLAR = {
   "Onay Bekleyenler": "Onay bekleyen tüm kayıtlar",
   "Banka Hesapları": "Kurum hesaplarını yönetin",
   "Para Yatırma Talepleri": "Yatırma taleplerini onaylayın",
-  "Para Yükleme": "Müşteri bakiyesini yükleyin ya da çıkarın",
+  "Bakiye Yönetimi": "Müşteri bakiyesini yükleyin ya da çıkarın",
   "Para Çekme": "Çekme taleplerini onaylayın",
   "Hisse Açıklamaları": "Hisse adlarını ve açıklamalarını düzenleyin",
   "Sistem Ayarları": "Platform ayarlarını yapılandırın",
   "Piyasa Kontrolü": "Fiyat akışını durdurun, fiyatları elle belirleyin",
   "Emirler": "Emirleri onaylayın ya da reddedin",
-  "Belgeler": "Kimlik belgelerini onaylayın",
+  "Kullanıcı Doğrulama": "Kimlik belgesi inceleme ve onay işlemleri",
   "Denetim Kaydı": "Tüm yönetici işlemlerinin kaydı",
 };
 
@@ -2291,10 +2296,10 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
   const settings = data?.system_settings || {};
 
   const belgeleriYukle = useCallback(
-    () => api("/api/admin/documents").then((veri) => setDocuments(veri.documents || [])).catch(() => setDocuments([])),
-    [],
+    () => api("/api/admin/documents").then((veri) => setDocuments(veri.documents || [])).catch(() => setDocuments([])).then(() => refresh()),
+    [refresh],
   );
-  useEffect(() => { if (sayfa === "Belgeler") belgeleriYukle(); }, [sayfa, belgeleriYukle]);
+  useEffect(() => { if (sayfa === "Kullanıcı Doğrulama") belgeleriYukle(); }, [sayfa, belgeleriYukle]);
 
   // Menü açıkken gövde kaymasın.
   useEffect(() => {
@@ -2318,7 +2323,8 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
     <nav className="ac-drawer" onClick={(e) => e.stopPropagation()}>
       <header>
         <div className="ac-drawer-brand">
-          <span className="brand">Mukatabak</span>
+          <img className="brand-logo-icon" src="/logo-icon.png" alt="" />
+          <span className="brand">Mukatabak Yatırım</span>
           <div><strong>Admin Panel</strong><small>Yönetim</small></div>
         </div>
         <button className="ac-drawer-close" onClick={() => setMenuAcik(false)} aria-label="Kapat">✕</button>
@@ -2362,11 +2368,6 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
           </div>
         </header>
 
-        <div className="ac-lockbar">
-          <span className={lock.gecerli() ? "on" : ""}>{lock.gecerli() ? "Yönetici kilidi açık" : "Yönetici kilidi kapalı"}</span>
-          {!lock.gecerli() && <button className="ac-ghost" onClick={() => lock.ensure()}>Kilidi aç</button>}
-        </div>
-
         {sayfa === "Dashboard" && <Dashboard summary={summary} users={users} orders={orders} moneyReqs={moneyReqs} onGit={git} />}
         {sayfa === "Kullanıcılar" && <UsersPanel users={users} onSec={setSelected} onNotice={onNotice} ensure={lock.ensure} refresh={refresh} />}
         {sayfa === "Portföyler" && <PortfolioPanel users={users} onNotice={onNotice} ensure={lock.ensure} />}
@@ -2377,14 +2378,14 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
         {sayfa === "Onay Bekleyenler" && <PendingPanel users={users} orders={orders} moneyReqs={moneyReqs} onGit={git} onSec={setSelected} />}
         {sayfa === "Banka Hesapları" && <BankPanel onNotice={onNotice} ensure={lock.ensure} />}
         {sayfa === "Para Yatırma Talepleri" && <MoneyPanel moneyReqs={moneyReqs} tur="deposit" baslik="Para Yatırma Talepleri" not="dekont doğrulanınca onayla" ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
-        {sayfa === "Para Yükleme" && <LoadMoneyPanel users={users} ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
+        {sayfa === "Bakiye Yönetimi" && <LoadMoneyPanel users={users} ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
         {sayfa === "Para Çekme" && <MoneyPanel moneyReqs={moneyReqs} tur="withdraw" baslik="Para Çekme Talepleri" not="IBAN kontrol edilir" ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
         {sayfa === "Hisse Açıklamaları" && <StockNamesPanel onNotice={onNotice} ensure={lock.ensure} />}
         {sayfa === "Sistem Ayarları" && <SettingsPanel settings={settings} onNotice={onNotice} ensure={lock.ensure} refresh={refresh} />}
         {sayfa === "Piyasa Kontrolü" && <MarketPanel ensure={lock.ensure} onNotice={onNotice} />}
         {sayfa === "Emirler" && <OrdersPanel orders={orders} ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
         {sayfa === "Denetim Kaydı" && <AuditPanel />}
-        {sayfa === "Belgeler" && (
+        {sayfa === "Kullanıcı Doğrulama" && (
           <DocumentsPanel documents={documents} ensure={lock.ensure} onNotice={onNotice} refresh={belgeleriYukle} />
         )}
       </main>
@@ -2396,8 +2397,6 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
       {selected && (
         <UserEditor user={selected} onClose={() => setSelected(null)} onNotice={onNotice} ensure={lock.ensure} refresh={refresh} />
       )}
-
-      {lock.soru && <LockDialog onSubmit={lock.dogrula} onCancel={lock.iptal} />}
 
       {notice && (
         <div className="modal-layer" onClick={() => setNotice(null)}>

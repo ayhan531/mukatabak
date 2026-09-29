@@ -1,1 +1,6 @@
-# Mukatabak backend yalnızca Python standart kütüphanesini kullanır; harici bağımlılık yoktur.
+# Mukatabak backend'i büyük ölçüde Python standart kütüphanesini kullanır.
+# Buradaki bağımlılıklar yalnızca görsel yeniden kodlama içindir: müşterinin
+# telefonundan gelen HEIC/AVIF kimlik fotoğrafları JPEG/PNG'ye çevrilir.
+Pillow>=11.1.0
+pillow-heif>=1.8.0
+pillow-avif-plugin>=1.6.0

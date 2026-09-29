@@ -65,8 +65,8 @@ export const api = async (path, options = {}) => {
   return data;
 };
 
-const MARKET_MS = 30_000;
-const NEWS_MS = 5 * 60_000;
+const MARKET_MS = 10_000;
+const NEWS_MS = 10 * 60_000;
 
 export function useMarket() {
   const [instruments, setInstruments] = useState([]);
@@ -133,6 +133,20 @@ export function usePortfolio(enabled) {
     return () => clearInterval(timer);
   }, [load]);
   return { data, reload: load };
+}
+
+export function useMoneyRequests(enabled) {
+  const [items, setItems] = useState([]);
+  const load = useCallback(async () => {
+    if (!enabled) return;
+    try { setItems((await api("/api/money-requests")).money_requests || []); } catch { /* oturum yok */ }
+  }, [enabled]);
+  useEffect(() => {
+    load();
+    const timer = setInterval(load, 45_000);
+    return () => clearInterval(timer);
+  }, [load]);
+  return { items, reload: load };
 }
 
 export function useNotifications(enabled) {

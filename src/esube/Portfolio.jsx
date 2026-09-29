@@ -169,7 +169,9 @@ export default function Portfolio({
 
   const stockValue = holdings.reduce((sum, item) => sum + item.value, 0);
   const cash = Number(account?.cash_balance || 0);
-  const blocked = Number(account?.blocked_balance || 0);
+  const legacyBlocked = Number(account?.blocked_balance || 0);
+  const pendingWithdrawals = Number(account?.pending_withdrawals || 0);
+  const blocked = Number(account?.orders_reserved || 0);
   const pending = Number(account?.pending_balance || 0);
   const available = Math.max(0, cash - blocked);
   const total = stockValue + cash + pending;
@@ -224,6 +226,13 @@ export default function Portfolio({
   );
 
   const mask = (text) => (hidden ? "₺••••••" : text);
+
+  // Geçmiş sekmesi sadece hisse alım/satım işlemlerini gösterir; para yatırma/çekme
+  // hareketleri artık burada değil, Hesap > Bakiye Geçmişi bölümünde listelenir.
+  const gecmisAkisi = useMemo(
+    () => trades.map((trade) => ({ kind: "trade", date: trade.date, data: trade })),
+    [trades]
+  );
 
   return (
     <div className="page">

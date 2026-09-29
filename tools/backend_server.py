@@ -25,9 +25,28 @@ import warnings
 import xml.etree.ElementTree as ET
 import zipfile
 from email.message import EmailMessage
+from PIL import Image, ImageOps
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+except Exception:
+    pillow_heif = None
+try:
+    import pillow_avif  # noqa: F401 - import kaydı AVIF desteğini Pillow'a ekler
+except Exception:
+    pass
 from news_feed import latest_news
 from market_news import sekme_haberleri as fotolu_sekme_haberleri, sirketleri_tanit
 import threading
+
+def generate_account_no(conn: "sqlite3.Connection") -> str:
+    """Rastgele 5 haneli, benzersiz müşteri numarası: MK + 5 rakam."""
+    for _ in range(50):
+        candidate = "MK" + f"{secrets.randbelow(100000):05d}"
+        if not conn.execute("SELECT 1 FROM users WHERE account_no=?", (candidate,)).fetchone():
+            return candidate
+    return "MK" + f"{secrets.randbelow(100000):05d}"
+
 import webpush
 
 
@@ -114,7 +133,103 @@ MARKET_URLS = [
     "https://trrealapi-market.onrender.com/data",
 ]
 MARKET_TIMEOUT = float(os.environ.get("MARKET_TIMEOUT", "12"))
-MARKET_REFRESH_SECONDS = int(os.environ.get("MARKET_REFRESH_SECONDS", "60"))
+MARKET_REFRESH_SECONDS = int(os.environ.get("MARKET_REFRESH_SECONDS", "12"))
+
+# --- Kurumsal site (CorporateLanding) sayfaları için sunucu taraflı SEO
+# meta enjeksiyonu. SPA tek bir index.html döndürdüğü için, arama
+# motorlarının her rotayı kendi başlık/açıklama/canonical/JSON-LD'siyle
+# görmesi için bu bilgiler istek anında ilgili rotaya göre değiştirilir.
+# Kullanıcıya gösterilen React içeriğiyle birebir örtüşür; içerik gizleme
+# (cloaking) değildir, sadece statik <head> meta verisini rotaya göre
+# günceller.
+SEO_SITE_URL = os.environ.get("SITE_URL", "https://mukatabak.onrender.com").rstrip("/")
+SEO_PAGES = {
+    "/": {
+        "label": "Mukatabak Yatırım",
+        "title": "Mukatabak Yatırım | E-Şube ve Canlı Borsa Platformu",
+        "description": "Mukatabak Yatırım E-Şube: canlı BIST fiyatları, hisse al-sat, portföy takibi, yatırım haberleri, para yatırma/çekme, sözleşmeler ve kurumsal dijital yatırım deneyimi.",
+    },
+    "/kurumsal": {
+        "label": "Hakkımızda",
+        "title": "Hakkımızda | Mukatabak Yatırım",
+        "description": "Mukatabak Yatırım hakkında: yatırımcı odaklı yaklaşımımız, dijital e-şube deneyimi ve şeffaf bilgilendirme ilkelerimiz.",
+    },
+    "/hizmetler": {
+        "label": "Hizmetlerimiz",
+        "title": "Yatırım Hizmetlerimiz | Mukatabak Yatırım",
+        "description": "Borsa İstanbul hisse al-sat, yatırım fonları, VİOP vadeli işlemler ve portföy yönetimi hizmetlerini Mukatabak Yatırım e-şubesinden keşfedin.",
+    },
+    "/ucretler": {
+        "label": "Komisyon & Ücretler",
+        "title": "Komisyon ve Ücretler | Mukatabak Yatırım",
+        "description": "Mukatabak Yatırım işlem komisyonları, fon yönetim ücretleri ve vadeli işlem masrafları hakkında güncel bilgi alın.",
+    },
+    "/blog": {
+        "label": "Blog",
+        "title": "Yatırımcı Rehberi ve Blog | Mukatabak Yatırım",
+        "description": "Mukatabak Yatırım blogunda piyasa okuryazarlığı, emir takibi, T+2 bakiye ve yatırımcı rehberleri.",
+    },
+    "/sss": {
+        "label": "SSS",
+        "title": "Sıkça Sorulan Sorular | Mukatabak Yatırım",
+        "description": "Hesap açma, para yatırma/çekme, emir takibi ve T+2 bakiye hakkında sıkça sorulan sorular ve yanıtları.",
+    },
+    "/iletisim": {
+        "label": "İletişim",
+        "title": "İletişim | Mukatabak Yatırım",
+        "description": "Mukatabak Yatırım yatırımcı destek hattı ve müşteri temsilciliği ile iletişime geçin.",
+    },
+    "/sozlesmeler": {
+        "label": "Sözleşmeler",
+        "title": "Sözleşmeler ve Risk Bildirimleri | Mukatabak Yatırım",
+        "description": "Mukatabak Yatırım e-şube sözleşmeleri, risk bildirimleri ve yasal belgeler hakkında bilgi alın.",
+    },
+}
+
+
+def render_seo_index(route_path: str) -> bytes:
+    info = SEO_PAGES.get(route_path)
+    html = (DIST / "index.html").read_text(encoding="utf-8")
+    if not info:
+        return html.encode("utf-8")
+    full_url = f"{SEO_SITE_URL}{'' if route_path == '/' else route_path}" + ("/" if route_path == "/" else "")
+    title, desc, label = info["title"], info["description"], info["label"]
+
+    def keep(pattern, value, text):
+        return re.sub(pattern, lambda m: m.group(1) + value + m.group(2), text, count=1)
+
+    html = re.sub(r"<title>.*?</title>", lambda m: f"<title>{title}</title>", html, count=1)
+    html = keep(r'(<meta name="description" content=")[^"]*(" />)', desc, html)
+    html = keep(r'(<link rel="canonical" href=")[^"]*(" />)', full_url, html)
+    html = keep(r'(<link rel="alternate" hreflang="tr-TR" href=")[^"]*(" />)', full_url, html)
+    html = keep(r'(<link rel="alternate" hreflang="x-default" href=")[^"]*(" />)', full_url, html)
+    html = keep(r'(<meta property="og:title" content=")[^"]*(" />)', title, html)
+    html = keep(r'(<meta property="og:description" content=")[^"]*(" />)', desc, html)
+    html = keep(r'(<meta property="og:url" content=")[^"]*(" />)', full_url, html)
+    html = keep(r'(<meta name="twitter:title" content=")[^"]*(" />)', title, html)
+    html = keep(r'(<meta name="twitter:description" content=")[^"]*(" />)', desc, html)
+
+    match = re.search(r'(<script type="application/ld\+json">\s*)(\{.*?\})(\s*</script>)', html, flags=re.S)
+    if match:
+        try:
+            data = json.loads(match.group(2))
+            for node in data.get("@graph", []):
+                if node.get("@type") == "WebPage":
+                    node["@id"] = f"{full_url}#webpage"
+                    node["url"] = full_url
+                    node["name"] = title
+                    node["description"] = desc
+                elif node.get("@type") == "BreadcrumbList":
+                    items = [{"@type": "ListItem", "position": 1, "name": "Mukatabak Yatırım", "item": f"{SEO_SITE_URL}/"}]
+                    if route_path != "/":
+                        items.append({"@type": "ListItem", "position": 2, "name": label, "item": full_url})
+                    node["itemListElement"] = items
+            new_json = json.dumps(data, ensure_ascii=False, indent=2)
+            html = html[:match.start(2)] + new_json + html[match.end(2):]
+        except Exception:
+            pass
+    return html.encode("utf-8")
+
 COMPANY_META_REFRESH_SECONDS = int(os.environ.get("COMPANY_META_REFRESH_SECONDS", "86400"))
 NEWS_REFRESH_SECONDS = int(os.environ.get("NEWS_REFRESH_SECONDS", "900"))
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
@@ -161,9 +276,9 @@ FALLBACK_QUOTES = [
     ("XU100", "BIST 100", 11048.12, 0.72, 0, "index"),
     ("XU030", "BIST 30", 12204.48, 0.68, 0, "index"),
     ("XBANK", "BIST Banka", 15782.35, 1.18, 0, "index"),
-    ("USDTRY", "Amerikan Doları", 40.87, 0.15, 0, "fx"),
-    ("EURTRY", "Euro", 47.28, 0.11, 0, "fx"),
-    ("GBPTRY", "İngiliz Sterlini", 54.62, 0.09, 0, "fx"),
+    ("USDTRY", "Amerikan Doları", 48.81, 0.0, 0, "fx"),
+    ("EURTRY", "Euro", 56.07, 0.0, 0, "fx"),
+    ("GBPTRY", "İngiliz Sterlini", 65.22, 0.0, 0, "fx"),
     ("XAUTRY", "Gram Altın", 4424.18, 0.44, 0, "commodity"),
     ("XAGTRY", "Gram Gümüş", 52.31, -0.22, 0, "commodity"),
     ("BRENT", "Brent Petrol", 80.24, -0.36, 0, "commodity"),
@@ -694,15 +809,16 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "audit_logs", "ip_address", "TEXT DEFAULT ''")
     ensure_column(conn, "audit_logs", "user_agent", "TEXT DEFAULT ''")
     ensure_column(conn, "audit_logs", "request_id", "TEXT DEFAULT ''")
+    ensure_column(conn, "positions", "value_override", "REAL")
     conn.execute("UPDATE t2_settlements SET remaining_amount=amount WHERE status='pending' AND remaining_amount<=0")
-    conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE account_no IS NULL OR account_no=''")
+    for row in conn.execute("SELECT id FROM users WHERE account_no IS NULL OR account_no=''").fetchall():
+        conn.execute("UPDATE users SET account_no=? WHERE id=?", (generate_account_no(conn), row["id"]))
+    # Eski marka on ekleri (FY/AU/PM/GM/OT) MK'ye tasinir.
     conn.execute(
         "UPDATE users SET account_no='MK' || substr(account_no, 3)"
-        " WHERE account_no LIKE 'FY%' OR account_no LIKE 'AU%'"
-        " OR account_no LIKE 'PM%' OR account_no LIKE 'GM%'"
+        " WHERE account_no LIKE 'FY%' OR account_no LIKE 'AU%' OR account_no LIKE 'PM%'"
+        " OR account_no LIKE 'GM%' OR account_no LIKE 'OT%'"
     )
-    # Eski OT on ekli hesap numaralari MK on ekine tasinir.
-    conn.execute("UPDATE users SET account_no='MK' || substr(account_no, 3) WHERE account_no LIKE 'OT%'")
     conn.execute("UPDATE system_bank_accounts SET is_active=0 WHERE REPLACE(iban, ' ', '') LIKE 'TR00%'")
     conn.execute("UPDATE orders SET gross_total=total WHERE gross_total<=0")
     conn.execute("UPDATE sessions SET last_seen_at=created_at WHERE last_seen_at<=0")
@@ -812,7 +928,7 @@ def seed_system_bank_accounts(conn: sqlite3.Connection) -> None:
             "Mukatabak Yatırım A.Ş.",
             "TR330006100519786457841326",
             "Dijital Şube",
-            "Demo/local para yatırma hesabı",
+            "",
             now(),
         ),
     )
@@ -901,7 +1017,7 @@ def seed_admin(conn: sqlite3.Connection) -> None:
             """,
             updates,
         )
-        conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=? AND (account_no IS NULL OR account_no='')", (existing["id"],))
+        conn.execute("UPDATE users SET account_no=? WHERE id=? AND (account_no IS NULL OR account_no='')", (generate_account_no(conn), existing["id"]))
         conn.execute("INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, 0, 0, 0)", (existing["id"],))
         conn.commit()
         return
@@ -913,7 +1029,7 @@ def seed_admin(conn: sqlite3.Connection) -> None:
         """,
         (admin_tc, salt, digest, os.environ.get("ADMIN_NAME", "Mukatabak Yönetici")[:120], "08508887000", os.environ.get("ADMIN_EMAIL", "admin@mukatabak.local")[:120], "Istanbul", now(), now()),
     )
-    conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (cur.lastrowid,))
+    conn.execute("UPDATE users SET account_no=? WHERE id=?", (generate_account_no(conn), cur.lastrowid))
     conn.execute("INSERT INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, 0, 0, 0)", (cur.lastrowid,))
     conn.commit()
 
@@ -969,7 +1085,7 @@ def seed_test_user(conn: sqlite3.Connection) -> None:
             """,
             updates,
         )
-        conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=? AND (account_no IS NULL OR account_no='')", (existing["id"],))
+        conn.execute("UPDATE users SET account_no=? WHERE id=? AND (account_no IS NULL OR account_no='')", (generate_account_no(conn), existing["id"]))
         conn.execute(
             "INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, pending_balance, credit_limit) VALUES (?, ?, 0, 0, ?)",
             (existing["id"], cash, credit),
@@ -987,7 +1103,7 @@ def seed_test_user(conn: sqlite3.Connection) -> None:
         (test_tc, salt, digest, full_name, phone, email, city, district, now(), now()),
     )
     user_id = cur.lastrowid
-    conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (user_id,))
+    conn.execute("UPDATE users SET account_no=? WHERE id=?", (generate_account_no(conn), user_id))
     conn.execute(
         "INSERT INTO accounts (user_id, cash_balance, blocked_balance, pending_balance, credit_limit) VALUES (?, ?, 0, 0, ?)",
         (user_id, cash, credit),
@@ -1049,7 +1165,41 @@ def account_for(conn: sqlite3.Connection, user_id: int) -> dict:
     if not row:
         conn.execute("INSERT INTO accounts (user_id) VALUES (?)", (user_id,))
         row = conn.execute("SELECT * FROM accounts WHERE user_id=?", (user_id,)).fetchone()
-    return dict(row)
+    account = dict(row)
+    account["orders_reserved"] = orders_reserved_for(conn, user_id)
+    account["pending_withdrawals"] = pending_withdrawals_for(conn, user_id)
+    return account
+
+
+def pending_withdrawals_for(conn: sqlite3.Connection, user_id: int) -> float:
+    """Onay bekleyen para çekme taleplerinin toplamı.
+
+    Bu tutar bir talep oluşturulduğunda cash_balance'tan hemen düşülmüyor
+    (sadece admin onayladığında düşülüyor); bu yüzden aynı parayla hem
+    çekim talebi açılıp hem de emir verilebiliyordu (ikisi de anda
+    "yeterli bakiye" görüyordu). buying_power() ve yeni çekim talebi
+    doğrulaması bu tutarı düşerek gerçek kullanılabilir tutarı hesaplar.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount), 0) AS toplam FROM money_requests WHERE user_id=? AND request_type='withdraw' AND status='pending'",
+        (user_id,),
+    ).fetchone()
+    return round(float(row["toplam"] or 0), 2)
+
+
+def orders_reserved_for(conn: sqlite3.Connection, user_id: int) -> float:
+    """Bekleyen (henüz gerçekleşmemiş) emirler için ayrılmış/kilitlenmiş tutar.
+
+    reserve_buying_power() emir verilirken bu tutarı cash_balance'tan zaten
+    düşüyor (Kullanılabilir bakiye doğru); ama bu fonksiyon olmadan emrin
+    kilitlediği tutar hiçbir yerde görünmüyordu (Emirlerdeki bakiye / Bloke
+    hep 0 gösteriyordu), sanki para hesaptan silinmiş gibi duruyordu.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(SUM(cash_reserved + pending_reserved), 0) AS toplam FROM orders WHERE user_id=? AND status='pending'",
+        (user_id,),
+    ).fetchone()
+    return round(float(row["toplam"] or 0), 2)
 
 
 def apply_manual_prices(conn: sqlite3.Connection) -> None:
@@ -1298,7 +1448,78 @@ def refresh_company_metadata(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+FX_REFRESH_SECONDS = int(os.environ.get("FX_REFRESH_SECONDS", str(6 * 60 * 60)))
+FX_SOURCE_URL = "https://api.frankfurter.dev/v1/latest?from=USD&to=TRY,EUR,GBP"
+
+
+def fetch_fx_quotes(conn: sqlite3.Connection) -> list[dict]:
+    """USD/EUR/GBP -> TRY kurlarını gerçek bir kaynaktan çeker.
+
+    TradingView tabanlı ana besleme (MARKET_URLS) sadece BIST hisse ve
+    endekslerini döndürüyor, döviz sembolü içermiyor - bu yüzden USDTRY/
+    EURTRY/GBPTRY ayrı, bağımsız bir kaynaktan güncellenir. Bu olmadan bu
+    üç satır ilk kurulumdaki sabit değerde donup kalıyordu (bkz. CLAUDE_HANDOFF
+    2026-09-23 notu - gerçek kur ~48.8 iken ekranda ~40.87 gösteriliyordu).
+    """
+    try:
+        request = urllib.request.Request(FX_SOURCE_URL, headers={"User-Agent": "MukatabakBackend/2.0"})
+        with urllib.request.urlopen(request, timeout=MARKET_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        rates = payload.get("rates") or {}
+        usdtry = float(rates.get("TRY"))
+        eur_per_usd = float(rates.get("EUR"))
+        gbp_per_usd = float(rates.get("GBP"))
+        if not (usdtry > 0 and eur_per_usd > 0 and gbp_per_usd > 0):
+            return []
+    except Exception:
+        return []
+
+    ts = now()
+    fresh = {
+        "USDTRY": ("Amerikan Doları", round(usdtry, 4)),
+        "EURTRY": ("Euro", round(usdtry / eur_per_usd, 4)),
+        "GBPTRY": ("İngiliz Sterlini", round(usdtry / gbp_per_usd, 4)),
+    }
+    quotes = []
+    for symbol, (name, price) in fresh.items():
+        prior = conn.execute("SELECT price FROM market_cache WHERE symbol=?", (symbol,)).fetchone()
+        prior_price = float(prior["price"]) if prior and prior["price"] else 0.0
+        change_pct = round((price - prior_price) / prior_price * 100, 2) if prior_price > 0 else 0.0
+        quotes.append({
+            "symbol": symbol, "name": name, "price": price, "change_pct": change_pct,
+            "volume": 0, "asset_class": "fx", "updated_at": ts,
+        })
+    return quotes
+
+
+def refresh_fx(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        "SELECT MIN(updated_at) AS oldest FROM market_cache WHERE symbol IN ('USDTRY','EURTRY','GBPTRY')"
+    ).fetchone()
+    oldest = int(row["oldest"]) if row and row["oldest"] is not None else 0
+    if now() - oldest < FX_REFRESH_SECONDS:
+        return
+    quotes = fetch_fx_quotes(conn)
+    if not quotes:
+        return
+    conn.executemany(
+        """
+        INSERT INTO market_cache
+          (symbol, name, price, change_pct, volume, asset_class, updated_at)
+        VALUES
+          (:symbol, :name, :price, :change_pct, :volume, :asset_class, :updated_at)
+        ON CONFLICT(symbol) DO UPDATE SET
+          price=excluded.price,
+          change_pct=excluded.change_pct,
+          updated_at=excluded.updated_at
+        """,
+        quotes,
+    )
+    conn.commit()
+
+
 def refresh_market(conn: sqlite3.Connection) -> list[dict]:
+    refresh_fx(conn)
     if not market_feed_enabled(conn):
         # Panelden "borsadan fiyat çekmeyi durdur" denmiş: son fiyatlar dondurulur.
         apply_manual_prices(conn)
@@ -1393,6 +1614,49 @@ def available_position_quantity(conn: sqlite3.Connection, user_id: int, symbol: 
     return max(0, position_quantity(conn, user_id, symbol) - reserved_sell_quantity(conn, user_id, symbol, exclude_order_id))
 
 
+MAX_IMAGE_DIMENSION = 2200  # yeniden kodlanan görsellerin en uzun kenarı bu değeri aşmaz
+
+
+def read_upload_bytes(item, too_large_message: str = "Dosya çok büyük") -> bytes:
+    """Yüklenen dosyanın tüm baytlarını MAX_UPLOAD_BYTES sınırını uygulayarak okur."""
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = item.file.read(64 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > MAX_UPLOAD_BYTES:
+            raise HttpError(413, too_large_message)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def transcode_uploaded_image(raw: bytes) -> tuple[bytes, str]:
+    """Yüklenen görseli - formatı ne olursa olsun (JPEG/PNG/WEBP/GIF/BMP/HEIC/
+    HEIF/AVIF/TIFF/...) - gerçekten açıp JPEG ya da (saydamlık varsa) PNG
+    olarak yeniden kodlar. Böylece diskteki dosyanın uzantısı her zaman
+    gerçek içeriğiyle eşleşir ve her tarayıcıda görüntülenebilir; eskiden
+    tanınmayan bir uzantı sadece ".jpg" yapılıp orijinal baytlar öylece
+    yazılıyordu (bozuk görsel sorununun kaynağı buydu). Telefon fotoğraflarının
+    EXIF döndürme bilgisi uygulanır ve aşırı büyük görseller küçültülür."""
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+    except Exception:
+        raise HttpError(400, "Görsel dosyası okunamadı ya da desteklenmeyen bir format")
+    img = ImageOps.exif_transpose(img) or img
+    if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+        img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.LANCZOS)
+    has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+    buf = io.BytesIO()
+    if has_alpha:
+        img.convert("RGBA").save(buf, format="PNG", optimize=True)
+        return buf.getvalue(), ".png"
+    img.convert("RGB").save(buf, format="JPEG", quality=90, optimize=True)
+    return buf.getvalue(), ".jpg"
+
+
 def status_label(value: str) -> str:
     return {
         "pending": "Beklemede",
@@ -1406,7 +1670,16 @@ def status_label(value: str) -> str:
     }.get(value, value)
 
 
-REQUIRED_IDENTITY_DOCUMENTS = {"identity_front", "identity_back", "selfie"}
+def document_status_label(value: str) -> str:
+    """Belge (kimlik) durumu için ayrı etiket: 'pending' burada "yüklendi,
+    incelemede" anlamına gelir (henüz hiç yüklenmemiş durumla karışmasın diye
+    genel status_label'daki "Beklemede" değil "İncelemede" gösterilir)."""
+    return {
+        "pending": "İncelemede",
+    }.get(value, status_label(value))
+
+
+REQUIRED_IDENTITY_DOCUMENTS = {"identity_front", "identity_back"}
 
 
 def kyc_document_state(conn: sqlite3.Connection, user_id: int) -> dict:
@@ -1585,6 +1858,16 @@ NEWS_FOREIGN_TOKENS = frozenset((
 ))
 NON_LATIN_TEXT = re.compile(r"[\u0400-\u04FF\u0590-\u08FF\u3000-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF]")
 
+# "Ekonomi" kategorisinde çıkan ama borsa/yatırımcı ile ilgisi olmayan
+# tüketici haberleri (kira, asgari ücret, memur/emekli maaşı vb.) bazı genel
+# kelimelerle (ör. "enflasyon") yanlışlıkla finans haberi sayılabiliyor; ayrı
+# bir kara liste ile eleniyor.
+NEWS_OFF_TOPIC_WORDS = (
+    "kira", "kiracı", "ev sahibi", "asgari ücret", "memur", "emekli",
+    "eyt", "sgk", "bayram ikramiye", "kyk", "öğrenci burs", "engelli maaş",
+    "yaşlı maaş", "evde bakım", "nafaka",
+)
+
 
 def _fold_tr(value: str) -> str:
     """Türkçe büyük harfleri doğru küçültür: İ→i, I→ı."""
@@ -1603,6 +1886,8 @@ def is_turkish_finance_news(title: str) -> bool:
     if any(word in folded for word in NEWS_TOOL_WORDS) and "haber" not in folded:
         return False
     if not any(word in folded for word in NEWS_FINANCE_WORDS):
+        return False
+    if any(word in folded for word in NEWS_OFF_TOPIC_WORDS):
         return False
     tokens = set(re.split(r"[^0-9a-zçğıöşü]+", folded))
     if len(tokens & NEWS_FOREIGN_TOKENS) >= 2:
@@ -1732,8 +2017,8 @@ def market_news(market: int) -> tuple[list[dict], bool]:
         items = []
     if not items:
         items = [haber for haber in fetch_market_news(market) if haber.get("image_url")]
-    if not items:
-        items = fetch_market_news(market)
+    # Fotoğrafsız haber gösterilmez: görselsiz Bing yedeğine asla düşülmez,
+    # bulunamazsa sekme boş kalır ya da son bilinen fotoğraflı listeye dönülür.
 
     if items:
         MARKET_NEWS_CACHE[market] = {"items": items, "updated_at": now()}
@@ -1990,6 +2275,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.api_contact()
         if method == "GET" and path == "/api/market":
             return self.api_market()
+        if method == "GET" and path == "/api/market/sparklines":
+            return self.api_market_sparklines()
         if method == "GET" and path == "/api/news":
             return self.api_news()
         if method == "GET" and path == "/api/market-news":
@@ -2268,9 +2555,9 @@ class AppHandler(BaseHTTPRequestHandler):
         return user
 
     def require_admin_step_up(self, conn: sqlite3.Connection) -> None:
-        row = conn.execute("SELECT step_up_until FROM sessions WHERE sid=?", (self.current_session_id(),)).fetchone()
-        if not row or int(row["step_up_until"] or 0) < now():
-            raise HttpError(403, "Finansal işlem için admin şifrenizi yeniden doğrulayın")
+        # Patron talebiyle kaldırıldı: kritik işlemlerde admin şifresi tekrar
+        # sorulmuyor (Fuzul referansındaki "Yönetici doğrulaması" adımı yok).
+        return
 
     def api_admin_step_up(self) -> None:
         payload = self.read_json()
@@ -2456,9 +2743,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def api_upload_documents(self) -> None:
         form = self.read_multipart()
+        sent_types = [doc_type for doc_type in ("identity_front", "identity_back") if doc_type in form]
+        if not sent_types:
+            raise HttpError(400, "En az bir belge seçmelisin")
         with connect_db() as conn:
             user = self.require_user(conn)
-            for doc_type in ("identity_front", "identity_back", "selfie"):
+            for doc_type in sent_types:
                 save_document(conn, form, user["id"], doc_type)
             if user["role"] != "admin":
                 conn.execute(
@@ -2486,22 +2776,11 @@ class AppHandler(BaseHTTPRequestHandler):
             content_type = item.type or "application/octet-stream"
             if not content_type.startswith("image/"):
                 raise HttpError(400, "Profil fotoğrafı görsel olmalı")
-            ext = Path(item.filename).suffix.lower()
-            if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-                ext = ".jpg"
+            raw = read_upload_bytes(item, "Dosya çok büyük")
+            encoded, ext = transcode_uploaded_image(raw)
             stored_name = f"{user['id']}_avatar_{secrets.token_hex(8)}{ext}"
             target = UPLOAD_DIR / stored_name
-            size = 0
-            with target.open("wb") as out:
-                while True:
-                    chunk = item.file.read(64 * 1024)
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > MAX_UPLOAD_BYTES:
-                        target.unlink(missing_ok=True)
-                        raise HttpError(413, "Dosya çok büyük")
-                    out.write(chunk)
+            target.write_bytes(encoded)
             avatar_url = f"/uploads/{stored_name}"
             conn.execute("UPDATE users SET avatar_url=? WHERE id=?", (avatar_url, user["id"]))
             audit(conn, user["id"], "upload_avatar", "user", user["id"])
@@ -2674,7 +2953,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 (tc, salt, digest, full_name, phone, email, city, district, birth_date, address, risk_profile_for(suitability_score), suitability_score, now(), AGREEMENTS_VERSION, now(), referrer["id"] if referrer else None, now()),
             )
             user_id = cur.lastrowid
-            conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (user_id,))
+            conn.execute("UPDATE users SET account_no=? WHERE id=?", (generate_account_no(conn), user_id))
             conn.execute("INSERT INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, 0, 0, 0)", (user_id,))
             conn.executemany(
                 "INSERT INTO user_agreements (user_id, agreement_type, agreement_version, accepted_at, ip_address) VALUES (?, ?, ?, ?, ?)",
@@ -2692,6 +2971,30 @@ class AppHandler(BaseHTTPRequestHandler):
         with connect_db() as conn:
             quotes = refresh_market(conn)
             self.json_response({"quotes": quotes, "source": "trrealapi-market", "updated_at": iso_time(), "meta": market_status(conn)})
+
+    def api_market_sparklines(self) -> None:
+        """Auth ekranındaki şerit için: sembol başına son gerçek fiyat örneklerini döndürür
+        (market_history tablosundan, gerçek verilerden — uydurma/simüle veri yok)."""
+        query = parse_qs(urlparse(self.path).query)
+        raw = (query.get("symbols", [""])[0] or "")
+        symbols = []
+        for piece in raw.split(","):
+            sym = clean_symbol(piece)
+            if sym and sym not in symbols:
+                symbols.append(sym)
+        symbols = symbols[:40]
+        if not symbols:
+            raise HttpError(400, "symbols parametresi gerekli")
+        limit = max(2, min(40, env_int("SPARKLINE_POINTS", 20)))
+        series: dict[str, list[float]] = {}
+        with connect_db() as conn:
+            for symbol in symbols:
+                rows = conn.execute(
+                    "SELECT price FROM market_history WHERE symbol=? ORDER BY recorded_at DESC LIMIT ?",
+                    (symbol, limit),
+                ).fetchall()
+                series[symbol] = [row["price"] for row in rows][::-1]
+        self.json_response({"series": series})
 
     def api_public_config(self) -> None:
         with connect_db() as conn:
@@ -3138,7 +3441,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     raise HttpError(400, "Geçerli bir Türkiye IBAN'ı giriniz")
                 if re.sub(r"\s+", " ", account_holder).strip().casefold() != re.sub(r"\s+", " ", user["full_name"]).strip().casefold():
                     raise HttpError(400, "Çekim hesabı sahibi kullanıcı adıyla aynı olmalıdır")
-                if account["cash_balance"] < amount:
+                cekilebilir = round(float(account["cash_balance"]) - pending_withdrawals_for(conn, user["id"]), 2)
+                if cekilebilir + 0.001 < amount:
                     raise HttpError(422, "Yetersiz bakiye")
                 conn.execute(
                     """
@@ -3214,7 +3518,11 @@ class AppHandler(BaseHTTPRequestHandler):
             rows = conn.execute(
                 """
                 SELECT u.*, a.cash_balance, a.blocked_balance, a.pending_balance, a.credit_limit,
+                  (SELECT COALESCE(SUM(o2.cash_reserved + o2.pending_reserved), 0) FROM orders o2 WHERE o2.user_id=u.id AND o2.status='pending') AS orders_reserved,
+                  (SELECT COALESCE(SUM(m2.amount), 0) FROM money_requests m2 WHERE m2.user_id=u.id AND m2.request_type='withdraw' AND m2.status='pending') AS pending_withdrawals,
                   (SELECT COUNT(*) FROM documents d WHERE d.user_id=u.id) AS document_count,
+                  (SELECT COUNT(*) FROM documents d WHERE d.user_id=u.id AND d.doc_type='identity_front') AS has_front,
+                  (SELECT COUNT(*) FROM documents d WHERE d.user_id=u.id AND d.doc_type='identity_back') AS has_back,
                   (SELECT COUNT(*) FROM orders o WHERE o.user_id=u.id) AS order_count,
                   (SELECT COUNT(*) FROM orders o WHERE o.user_id=u.id AND o.side='buy') AS buy_count,
                   (SELECT COUNT(*) FROM orders o WHERE o.user_id=u.id AND o.side='sell') AS sell_count,
@@ -3371,7 +3679,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self.require_admin(conn)
             rows = conn.execute(
                 """
-                SELECT u.id, u.account_no, u.full_name, u.email, u.city, u.district, u.status, a.cash_balance, a.blocked_balance, a.pending_balance, a.credit_limit
+                SELECT u.id, u.account_no, u.full_name, u.email, u.city, u.district, u.status, a.cash_balance, a.blocked_balance, a.pending_balance, a.credit_limit,
+                  (SELECT COALESCE(SUM(o2.cash_reserved + o2.pending_reserved), 0) FROM orders o2 WHERE o2.user_id=u.id AND o2.status='pending') AS orders_reserved,
+                  (SELECT COALESCE(SUM(m2.amount), 0) FROM money_requests m2 WHERE m2.user_id=u.id AND m2.request_type='withdraw' AND m2.status='pending') AS pending_withdrawals
                 FROM users u
                 LEFT JOIN accounts a ON a.user_id=u.id
                 WHERE u.role='user'
@@ -3770,7 +4080,7 @@ class AppHandler(BaseHTTPRequestHandler):
             )
             uid = int(cur.lastrowid)
             # Panelden acilan musteri de hesap numarasini hemen alir.
-            conn.execute("UPDATE users SET account_no=printf('MK%06d', id) WHERE id=?", (uid,))
+            conn.execute("UPDATE users SET account_no=? WHERE id=?", (generate_account_no(conn), uid))
             conn.execute("INSERT OR IGNORE INTO accounts (user_id, cash_balance, blocked_balance, credit_limit) VALUES (?, ?, 0, 0)", (uid, opening))
             if opening:
                 conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (opening, uid))
@@ -3841,8 +4151,10 @@ class AppHandler(BaseHTTPRequestHandler):
     def api_admin_render_status(self) -> None:
         with connect_db() as conn:
             self.require_admin(conn)
-        token = os.environ.get("RENDER_API_TOKEN", "rnd_dm8o9dIJjm5vxjC2jZR9gwgBZ6Qp")
-        service_id = os.environ.get("RENDER_SERVICE_ID", "srv-da2ftlijnfac73di1cb0")
+        token = os.environ.get("RENDER_API_TOKEN", "")
+        service_id = os.environ.get("RENDER_SERVICE_ID", "")
+        if not token or not service_id:
+            raise HttpError(500, "Render API yapılandırması eksik: RENDER_API_TOKEN / RENDER_SERVICE_ID ortam değişkenlerini ayarlayın.")
         
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         try:
@@ -3880,8 +4192,10 @@ class AppHandler(BaseHTTPRequestHandler):
             audit(conn, admin["id"], "render_trigger_deploy", "system_settings", None)
             conn.commit()
 
-        token = os.environ.get("RENDER_API_TOKEN", "rnd_dm8o9dIJjm5vxjC2jZR9gwgBZ6Qp")
-        service_id = os.environ.get("RENDER_SERVICE_ID", "srv-da2ftlijnfac73di1cb0")
+        token = os.environ.get("RENDER_API_TOKEN", "")
+        service_id = os.environ.get("RENDER_SERVICE_ID", "")
+        if not token or not service_id:
+            raise HttpError(500, "Render API yapılandırması eksik: RENDER_API_TOKEN / RENDER_SERVICE_ID ortam değişkenlerini ayarlayın.")
         
         payload = json.dumps({"clearCache": "do_not_clear"}).encode("utf-8")
         req = urllib.request.Request(
@@ -3922,8 +4236,10 @@ class AppHandler(BaseHTTPRequestHandler):
         if not domain:
             raise HttpError(400, "Geçerli bir domain giriniz.")
 
-        token = os.environ.get("RENDER_API_TOKEN", "rnd_dm8o9dIJjm5vxjC2jZR9gwgBZ6Qp")
-        service_id = os.environ.get("RENDER_SERVICE_ID", "srv-da2ftlijnfac73di1cb0")
+        token = os.environ.get("RENDER_API_TOKEN", "")
+        service_id = os.environ.get("RENDER_SERVICE_ID", "")
+        if not token or not service_id:
+            raise HttpError(500, "Render API yapılandırması eksik: RENDER_API_TOKEN / RENDER_SERVICE_ID ortam değişkenlerini ayarlayın.")
 
         payload = json.dumps({"name": domain}).encode("utf-8")
         req = urllib.request.Request(
@@ -4018,28 +4334,34 @@ class AppHandler(BaseHTTPRequestHandler):
         address = str(payload.get("address", "")).strip()[:240]
         kyc_note = str(payload.get("kyc_note", "")).strip()[:300]
         status = str(payload.get("status", "")).strip()
+        tc_raw = re.sub(r"\D", "", str(payload.get("tc", "")))
+        is_test_user = 1 if payload.get("is_test_user") else 0
         if status not in {"pending", "under_review", "awaiting_back", "approved", "rejected"}:
             raise HttpError(400, "Durum hatalı")
         if not full_name or not phone or not email:
             raise HttpError(400, "Kullanıcı bilgileri eksik")
+        if tc_raw and not identity_number_is_real(tc_raw):
+            raise HttpError(400, "Geçersiz T.C. kimlik numarası")
         with connect_db() as conn:
             admin = self.require_admin(conn)
             self.require_admin_step_up(conn)
             target = conn.execute("SELECT * FROM users WHERE id=? AND role='user'", (user_id,)).fetchone()
             if not target:
                 raise HttpError(404, "Kullanıcı bulunamadı")
-            if status == "approved" and not int(target["is_test_user"] or 0) and not kyc_document_state(conn, user_id)["approved"]:
-                raise HttpError(422, "Üç kimlik belgesi ayrı ayrı onaylanmadan hesap onaylanamaz")
+            tc = tc_raw or target["tc"]
+            if tc != target["tc"] and conn.execute("SELECT id FROM users WHERE tc=? AND id!=?", (tc, user_id)).fetchone():
+                raise HttpError(409, "Bu T.C. kimlik numarası başka bir kullanıcıda kayıtlı")
             conn.execute(
                 """
                 UPDATE users
-                SET full_name=?, phone=?, email=?, city=?, district=?, birth_date=?, address=?,
-                    status=?, kyc_status=?, kyc_note=?, approved_at=CASE WHEN ?='approved' THEN COALESCE(approved_at, ?) ELSE approved_at END
+                SET full_name=?, phone=?, email=?, city=?, district=?, birth_date=?, address=?, tc=?,
+                    status=?, kyc_status=?, kyc_note=?, is_test_user=?,
+                    approved_at=CASE WHEN ?='approved' THEN COALESCE(approved_at, ?) ELSE approved_at END
                 WHERE id=? AND role='user'
                 """,
-                (full_name, phone, email, city, district, birth_date, address, status, status, kyc_note, status, now(), user_id),
+                (full_name, phone, email, city, district, birth_date, address, tc, status, status, kyc_note, is_test_user, status, now(), user_id),
             )
-            audit(conn, admin["id"], "update_user", "user", user_id)
+            audit(conn, admin["id"], "update_user", "user", user_id, {"is_test_user": is_test_user})
             conn.commit()
             self.json_response({"ok": True})
 
@@ -4048,8 +4370,6 @@ class AppHandler(BaseHTTPRequestHandler):
         if action not in {"approve", "reject", "retry"}:
             raise HttpError(404, "Belge işlemi bulunamadı")
         note = str(payload.get("note", "")).strip()[:300]
-        if action in {"reject", "retry"} and len(note) < 8:
-            raise HttpError(422, "Belge işlemi için en az 8 karakterlik inceleme gerekçesi zorunludur")
         with connect_db() as conn:
             admin = self.require_admin(conn)
             self.require_admin_step_up(conn)
@@ -4060,8 +4380,29 @@ class AppHandler(BaseHTTPRequestHandler):
             conn.execute("UPDATE documents SET status=?, review_note=? WHERE id=?", (next_status, note, document_id))
             if next_status == "awaiting_back":
                 conn.execute("UPDATE users SET status='awaiting_back', kyc_status='awaiting_back', kyc_note=? WHERE id=?", (note or "Belge tekrar isteniyor", document["user_id"]))
+                create_notification(
+                    conn, int(document["user_id"]),
+                    "Belge tekrar gerekiyor",
+                    note or "Yüklediğiniz kimlik belgesi tekrar isteniyor. Lütfen belgenizi yeniden yükleyin.",
+                    category="hesap",
+                )
             else:
-                sync_user_kyc(conn, int(document["user_id"]))
+                onceki_durum = conn.execute("SELECT status FROM users WHERE id=?", (document["user_id"],)).fetchone()["status"]
+                state = sync_user_kyc(conn, int(document["user_id"]))
+                if state.get("approved") and onceki_durum != "approved":
+                    create_notification(
+                        conn, int(document["user_id"]),
+                        "Hesabınız onaylandı",
+                        "Kimlik doğrulamanız tamamlandı. Artık alım satım, para yatırma ve çekme işlemlerini yapabilirsiniz.",
+                        category="hesap",
+                    )
+                elif action == "reject":
+                    create_notification(
+                        conn, int(document["user_id"]),
+                        "Belgeniz reddedildi",
+                        note or "Yüklediğiniz kimlik belgesi reddedildi. Lütfen tekrar yükleyin.",
+                        category="hesap",
+                    )
             audit(conn, admin["id"], f"{action}_document", "document", document_id, {"note": note})
             conn.commit()
             self.json_response({"ok": True})
@@ -4074,8 +4415,8 @@ class AppHandler(BaseHTTPRequestHandler):
         note = str(payload.get("note", "")).strip()[:300]
         if user_id <= 0 or amount < 0 or action not in {"add", "subtract", "credit", "set"}:
             raise HttpError(400, "Bakiye işlemi hatalı")
-        if len(note) < 8:
-            raise HttpError(422, "Finansal değişiklik için en az 8 karakterlik gerekçe zorunludur")
+        if not note:
+            note = "Admin tarafından bakiye düzenlemesi"
         with connect_db() as conn:
             admin = self.require_admin(conn)
             self.require_admin_step_up(conn)
@@ -4086,8 +4427,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (after, user_id))
                 tx_type = "admin_add"
             elif action == "subtract":
-                if before < amount:
-                    raise HttpError(422, "Bakiye yetersiz")
+                # Admin istediği kullanıcıdan istediği tutarı, kaç kez isterse
+                # o kadar çıkarabilir - mevcut bakiyeyle sınırlı değil (bilinçli
+                # düzeltme/iptal işlemleri için negatife de düşebilir).
                 after = round(before - amount, 2)
                 conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (after, user_id))
                 tx_type = "admin_subtract"
@@ -4110,12 +4452,21 @@ class AppHandler(BaseHTTPRequestHandler):
         symbol = re.sub(r"[^A-Z0-9]", "", str(payload.get("symbol", "")).upper())
         quantity = int(float(payload.get("quantity", 0) or 0))
         price = float(payload.get("price", 0) or 0)
+        total_cost_raw = payload.get("total_cost")
+        if total_cost_raw not in (None, "") and quantity > 0:
+            try:
+                total_cost = float(str(total_cost_raw).replace(",", "."))
+                if total_cost > 0:
+                    price = total_cost / quantity
+            except (TypeError, ValueError):
+                pass
         action = str(payload.get("action", "set")).lower()
         note = str(payload.get("note", "")).strip()[:300]
         if user_id <= 0 or not symbol or quantity < 0 or price <= 0 or action not in {"set", "add", "reduce"}:
             raise HttpError(400, "Pozisyon işlemi hatalı")
-        if len(note) < 8:
-            raise HttpError(422, "Portföy değişikliği için en az 8 karakterlik gerekçe zorunludur")
+        if not note:
+            note = "Admin tarafından portföy düzenlemesi"
+        value_override_raw = payload.get("value_override")
         with connect_db() as conn:
             admin = self.require_admin(conn)
             self.require_admin_step_up(conn)
@@ -4135,6 +4486,17 @@ class AppHandler(BaseHTTPRequestHandler):
                 upsert_position(conn, user_id, symbol, quantity, price)
             else:
                 reduce_position(conn, user_id, symbol, quantity)
+            if quantity != 0 and value_override_raw is not None:
+                override_text = str(value_override_raw).strip().replace(",", ".")
+                if override_text == "":
+                    conn.execute("UPDATE positions SET value_override=NULL WHERE user_id=? AND symbol=?", (user_id, symbol))
+                else:
+                    try:
+                        override_val = float(override_text)
+                    except ValueError:
+                        override_val = 0
+                    if override_val > 0:
+                        conn.execute("UPDATE positions SET value_override=? WHERE user_id=? AND symbol=?", (override_val, user_id, symbol))
             audit(conn, admin["id"], "adjust_position", "position", user_id, {"symbol": symbol, "quantity": quantity, "action": action, "reason": note})
             conn.commit()
             self.json_response({"ok": True})
@@ -4144,14 +4506,12 @@ class AppHandler(BaseHTTPRequestHandler):
             raise HttpError(404, "İşlem bulunamadı")
         payload = self.read_json()
         reason = str(payload.get("reason", "")).strip()[:300]
-        if entity in {"orders", "money"} and len(reason) < 8:
-            raise HttpError(422, "Finansal onay veya ret için en az 8 karakterlik gerekçe zorunludur")
         with connect_db() as conn:
             admin = self.require_admin(conn)
             if entity in {"users", "orders", "money"}:
                 self.require_admin_step_up(conn)
             if entity == "users":
-                self.admin_user_action(conn, admin, entity_id, action)
+                self.admin_user_action(conn, admin, entity_id, action, reason)
             elif entity == "orders":
                 self.admin_order_action(conn, admin, entity_id, action, reason)
             elif entity == "money":
@@ -4159,17 +4519,32 @@ class AppHandler(BaseHTTPRequestHandler):
             conn.commit()
             self.json_response({"ok": True})
 
-    def admin_user_action(self, conn: sqlite3.Connection, admin: dict, user_id: int, action: str) -> None:
+    def admin_user_action(self, conn: sqlite3.Connection, admin: dict, user_id: int, action: str, reason: str = "") -> None:
         user = conn.execute("SELECT * FROM users WHERE id=? AND role='user'", (user_id,)).fetchone()
         if not user:
             raise HttpError(404, "Kullanıcı bulunamadı")
         status = "approved" if action == "approve" else "rejected"
         if action == "approve":
-            if not int(user["is_test_user"] or 0) and not kyc_document_state(conn, user_id)["approved"]:
-                raise HttpError(422, "Tüm kimlik belgeleri onaylanmadan kullanıcı onaylanamaz")
-            sync_user_kyc(conn, user_id)
+            # Admin onayi belge durumundan bagimsizdir: admin istedigi hesabi
+            # istedigi zaman onaylayabilir, belge eksik/reddedilmis olsa da.
+            conn.execute(
+                "UPDATE users SET status='approved', kyc_status='approved', kyc_note='', approved_at=COALESCE(approved_at, ?) WHERE id=?",
+                (now(), user_id),
+            )
+            create_notification(
+                conn, user_id,
+                "Hesabınız onaylandı",
+                "Kimlik doğrulamanız tamamlandı. Artık alım satım, para yatırma ve çekme işlemlerini yapabilirsiniz.",
+                category="hesap",
+            )
         else:
-            conn.execute("UPDATE users SET status='rejected', kyc_status='rejected', approved_at=NULL WHERE id=?", (user_id,))
+            conn.execute("UPDATE users SET status='rejected', kyc_status='rejected', kyc_note=?, approved_at=NULL WHERE id=?", (reason, user_id))
+            create_notification(
+                conn, user_id,
+                "Hesabınız reddedildi",
+                reason or "Hesap başvurunuz reddedildi. Detaylar için destek ekibiyle iletişime geçin.",
+                category="hesap",
+            )
         audit(conn, admin["id"], f"{action}_user", "user", user_id)
 
     def admin_order_action(self, conn: sqlite3.Connection, admin: dict, order_id: int, action: str, reason: str) -> None:
@@ -4181,6 +4556,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 release_order_reservation(conn, order_id)
             conn.execute("UPDATE orders SET status='rejected', admin_note=?, reviewed_at=? WHERE id=?", (reason, now(), order_id))
             audit(conn, admin["id"], "reject_order", "order", order_id, {"reason": reason})
+            create_notification(
+                conn, order["user_id"],
+                "Emriniz reddedildi",
+                f"{order['symbol']} {'alış' if order['side'] == 'buy' else 'satış'} emriniz reddedildi" + (f": {reason}" if reason else "."),
+                category="islem",
+            )
             return
         quote = find_quote(conn, order["symbol"]) or {"name": order["symbol"]}
         if order["side"] == "buy":
@@ -4219,6 +4600,12 @@ class AppHandler(BaseHTTPRequestHandler):
             notify_referrals_of_sale(conn, order["user_id"], order["symbol"], int(order["quantity"]))
         conn.execute("UPDATE orders SET status='approved', admin_note=?, reviewed_at=? WHERE id=?", (reason, now(), order_id))
         audit(conn, admin["id"], "approve_order", "order", order_id, {"total": order["total"], "reason": reason})
+        create_notification(
+            conn, order["user_id"],
+            "Emriniz gerçekleşti",
+            f"{order['quantity']} lot {order['symbol']} {'alış' if order['side'] == 'buy' else 'satış'} emriniz gerçekleşti.",
+            category="islem",
+        )
 
     def admin_money_action(self, conn: sqlite3.Connection, admin: dict, request_id: int, action: str, reason: str) -> None:
         item = conn.execute("SELECT * FROM money_requests WHERE id=?", (request_id,)).fetchone()
@@ -4227,24 +4614,38 @@ class AppHandler(BaseHTTPRequestHandler):
         if action == "reject":
             conn.execute("UPDATE money_requests SET status='rejected', admin_note=?, reviewed_at=? WHERE id=?", (reason, now(), request_id))
             audit(conn, admin["id"], "reject_money_request", "money_request", request_id, {"reason": reason})
+            turu = {"deposit": "Para yatırma", "withdraw": "Para çekme", "credit": "Kredili yatırma"}.get(item["request_type"], item["request_type"])
+            create_notification(
+                conn, item["user_id"],
+                f"{turu} talebiniz reddedildi",
+                f"₺{float(item['amount']):.2f} tutarındaki {turu.lower()} talebiniz reddedildi" + (f": {reason}" if reason else "."),
+                category="islem",
+            )
             return
         account = account_for(conn, item["user_id"])
         if item["request_type"] == "deposit":
             before = float(account["cash_balance"])
             after = round(before + float(item["amount"]), 2)
             conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (after, item["user_id"]))
-            write_transaction(conn, item["user_id"], "deposit", item["amount"], before, after, money_request_id=request_id, note=item["note"] or "Para yatırma talebi onaylandı")
+            write_transaction(conn, item["user_id"], "deposit", item["amount"], before, after, money_request_id=request_id, note=reason or "Para yatırma talebi onaylandı")
         elif item["request_type"] == "withdraw":
             if account["cash_balance"] < item["amount"]:
                 raise HttpError(422, "Bakiye yetersiz")
             before = float(account["cash_balance"])
             after = round(before - float(item["amount"]), 2)
             conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (after, item["user_id"]))
-            write_transaction(conn, item["user_id"], "withdrawal", item["amount"], before, after, money_request_id=request_id, note=item["note"] or "Para çekme talebi onaylandı")
+            write_transaction(conn, item["user_id"], "withdrawal", item["amount"], before, after, money_request_id=request_id, note=reason or "Para çekme talebi onaylandı")
         elif item["request_type"] == "credit":
             conn.execute("UPDATE accounts SET credit_limit=credit_limit+? WHERE user_id=?", (item["amount"], item["user_id"]))
         conn.execute("UPDATE money_requests SET status='approved', admin_note=?, reviewed_at=? WHERE id=?", (reason, now(), request_id))
         audit(conn, admin["id"], "approve_money_request", "money_request", request_id, {"amount": item["amount"], "reason": reason})
+        turu = {"deposit": "Para yatırma", "withdraw": "Para çekme", "credit": "Kredili yatırma"}.get(item["request_type"], item["request_type"])
+        create_notification(
+            conn, item["user_id"],
+            f"{turu} talebiniz onaylandı",
+            f"₺{float(item['amount']):.2f} tutarındaki {turu.lower()} talebiniz onaylandı.",
+            category="islem",
+        )
 
     def serve_upload(self, path: str) -> None:
         with connect_db() as conn:
@@ -4259,15 +4660,33 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def serve_static(self, path: str) -> None:
         requested = (DIST / path.lstrip("/")).resolve()
+        used_spa_fallback = False
         if not str(requested).startswith(str(DIST.resolve())) or not requested.exists() or requested.is_dir():
             public_file = (PUBLIC / path.lstrip("/")).resolve()
             if str(public_file).startswith(str(PUBLIC.resolve())) and public_file.exists() and not public_file.is_dir():
                 requested = public_file
             else:
                 requested = DIST / "index.html"
+                used_spa_fallback = True
         if not requested.exists() or requested.is_dir():
             requested = DIST / "index.html"
+            used_spa_fallback = True
+        if used_spa_fallback and path in SEO_PAGES:
+            self.serve_seo_index(path)
+            return
         self.serve_file(requested)
+
+    def serve_seo_index(self, route_path: str) -> None:
+        body = render_seo_index(route_path)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        self.security_headers()
+        self.end_headers()
+        self.wfile.write(body)
 
     EXTRA_TYPES = {
         ".webmanifest": "application/manifest+json; charset=utf-8",
@@ -4322,22 +4741,11 @@ def save_document(conn: sqlite3.Connection, form: MultipartForm, user_id: int, d
     content_type = item.type or "application/octet-stream"
     if not content_type.startswith("image/"):
         raise HttpError(400, "Kimlik dosyaları görsel olmalı")
-    ext = Path(item.filename).suffix.lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-        ext = ".jpg"
+    raw = read_upload_bytes(item, "Tek dosya 100 MB üstünde olamaz")
+    encoded, ext = transcode_uploaded_image(raw)
     stored_name = f"{user_id}_{doc_type}_{secrets.token_hex(8)}{ext}"
     target = UPLOAD_DIR / stored_name
-    size = 0
-    with target.open("wb") as out:
-        while True:
-            chunk = item.file.read(64 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > MAX_UPLOAD_BYTES:
-                target.unlink(missing_ok=True)
-                raise HttpError(413, "Tek dosya 100 MB üstünde olamaz")
-            out.write(chunk)
+    target.write_bytes(encoded)
     conn.execute(
         "INSERT INTO documents (user_id, doc_type, original_name, stored_name, content_type, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
         (user_id, doc_type, Path(item.filename).name, stored_name, content_type, now()),
@@ -4535,6 +4943,8 @@ def admin_position_rows(conn: sqlite3.Connection) -> list[dict]:
         item = dict(row)
         quote = find_quote(conn, item["symbol"]) or {}
         current_price = float(quote.get("price") or item["avg_price"])
+        if item.get("value_override") is not None:
+            current_price = float(item["value_override"])
         item["current_price"] = current_price
         item["market_value"] = current_price * item["quantity"]
         item["pnl"] = item["market_value"] - item["avg_price"] * item["quantity"]
@@ -4605,7 +5015,8 @@ def t2_is_enabled(conn: sqlite3.Connection) -> bool:
 
 
 def buying_power(account: dict) -> float:
-    return round(float(account["cash_balance"]) + float(account["pending_balance"]), 2)
+    reserved_withdrawals = float(account.get("pending_withdrawals", 0) or 0)
+    return round(float(account["cash_balance"]) + float(account["pending_balance"]) - reserved_withdrawals, 2)
 
 
 def ensure_pending_allocations(conn: sqlite3.Connection, user_id: int) -> None:
@@ -4783,7 +5194,7 @@ def document_rows(conn: sqlite3.Connection, where: str = "", params: tuple = ())
             "identity_back": "Kimlik Arka Yüz",
             "selfie": "Yüz Doğrulama",
         }.get(item["doc_type"], item["doc_type"])
-        item["status_label"] = status_label(item["status"])
+        item["status_label"] = document_status_label(item["status"])
         items.append(item)
     return items
 
@@ -4973,9 +5384,18 @@ def public_user(user: dict, include_sensitive: bool = False) -> dict:
         data["tc_valid"] = identity_number_is_real(str(user["tc"]))
         data["cash_balance"] = user.get("cash_balance", 0)
         data["blocked_balance"] = user.get("blocked_balance", 0)
+        data["orders_reserved"] = user.get("orders_reserved", 0)
+        data["pending_withdrawals"] = user.get("pending_withdrawals", 0)
         data["pending_balance"] = user.get("pending_balance", 0)
         data["credit_limit"] = user.get("credit_limit", 0)
         data["document_count"] = user.get("document_count", 0)
+        if user["status"] not in ("approved", "rejected"):
+            eksik = []
+            if not user.get("has_front"): eksik.append("Ön Yüz")
+            if not user.get("has_back"): eksik.append("Arka Yüz")
+            data["kyc_missing_label"] = f"{', '.join(eksik)} Bekleniyor" if eksik and len(eksik) < 2 else None
+        else:
+            data["kyc_missing_label"] = None
         data["order_count"] = user.get("order_count", 0)
         data["buy_count"] = user.get("buy_count", 0)
         data["sell_count"] = user.get("sell_count", 0)
@@ -5169,6 +5589,8 @@ def portfolio_rows(conn: sqlite3.Connection, user_id: int) -> list[dict]:
         item = dict(row)
         quote = find_quote(conn, item["symbol"]) or {}
         current_price = float(quote.get("price") or item["avg_price"])
+        if item.get("value_override") is not None:
+            current_price = float(item["value_override"])
         item["current_price"] = current_price
         item["market_value"] = current_price * item["quantity"]
         item["pnl"] = item["market_value"] - item["avg_price"] * item["quantity"]

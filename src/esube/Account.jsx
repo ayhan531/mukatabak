@@ -1,5 +1,5 @@
 // Hesap — Mukatabak 2.5.1 APK'sındaki "Hesap" ekranının birebir karşılığı.
-import React from "react";
+import React, { useRef } from "react";
 import Icon from "./icons.jsx";
 import { money } from "./market.js";
 import { T } from "./lang.js";
@@ -21,12 +21,18 @@ export default function Account({
   me, account, monogram, version, dark, setDark,
   onOpenPersonal, onOpenSecurity, onOpenContracts, onOpenSettings, onOpenNotifications,
   onTransfer, onHistory, onOrders, onBanks, onLogout, onExport,
+  onOpenKyc, kycApproved, moneyRequests, onCancelMoneyRequest,
 }) {
+  const bakiyeGecmisi = useRef(null);
   const cash = Number(account?.cash_balance || 0);
   const blocked = Number(account?.blocked_balance || 0);
+  /* Bekleyen para çekme talebi kullanılabilir bakiyeden düşülür: müşteri
+     çekmeye gönderdiği parayı ikinci kez harcayamaz. */
+  const pendingWithdrawals = Number(account?.pending_withdrawals || 0);
   const pending = Number(account?.pending_balance || 0);
-  const available = Math.max(0, cash - blocked);
-  const verified = String(me?.kyc_status || "").toLowerCase() === "approved" || String(me?.status || "") === "active";
+  const available = Math.max(0, cash - blocked - pendingWithdrawals);
+  const verified = kycApproved ?? (String(me?.kyc_status || "").toLowerCase() === "approved" || String(me?.status || "") === "active");
+  const kilitli = kycApproved === false;
 
   return (
     <div className="page">
@@ -54,20 +60,79 @@ export default function Account({
         </button>
       </section>
 
+      {/* ---- kimlik doğrulama uyarısı ---- */}
+      {kycApproved === false && (
+        <button className="mk-card mk-kyc" onClick={onOpenKyc}>
+          <i className={`tile ${me?.kyc_status === "under_review" ? "t3" : "t8"}`}>
+            <Icon name={me?.kyc_status === "under_review" ? "clock" : "lock"} size={19} />
+          </i>
+          <span>
+            <b>{T(me?.kyc_status === "under_review" ? "Kimlik belgelerin incelemede" : "Kimlik doğrulaman eksik")}</b>
+            <s>{T(me?.kyc_status === "under_review"
+              ? "Onaylandığında para yatırma, çekme ve emir verme açılır."
+              : "Para yatırma, çekme ve emir verme için kimliğini doğrula.")}</s>
+          </span>
+          <span className="chev"><Icon name="chevron" size={16} /></span>
+        </button>
+      )}
+
       {/* ---- bakiye ---- */}
       <section className="mk-card mk-balance" style={{ position: "relative" }}>
         <span className="wallet"><Icon name="wallet" size={20} /></span>
         <div className="k">{T("Kullanılabilir Bakiye")}</div>
         <div className="v">{money(available)}</div>
         <div className="t2">{T("T+2 bakiye")} {money(cash + pending)}</div>
+        {pendingWithdrawals > 0 && (
+          <div className="t2">{T("Çekim talebinde bekleyen")} {money(pendingWithdrawals)}</div>
+        )}
         <div className="mk-money">
-          <button className="mk-btn solid" onClick={() => onTransfer(true)}>
+          <button className={`mk-btn solid${kilitli ? " kilitli" : ""}`} onClick={() => onTransfer(true)}>
             <Icon name="deposit" size={18} />{T("Para Yatır")}
           </button>
-          <button className="mk-btn ghost" onClick={() => onTransfer(false)}>
+          <button className={`mk-btn ghost${kilitli ? " kilitli" : ""}`} onClick={() => onTransfer(false)}>
             <Icon name="withdraw" size={18} />{T("Para Çek")}
           </button>
         </div>
+      </section>
+
+      {/* ---- bakiye geçmişi: para yatırma / çekme / kredi talepleri ---- */}
+      <section className="mk-card mk-history" ref={bakiyeGecmisi}>
+        <div className="mk-card-head"><h2>{T("Bakiye Geçmişi")}</h2></div>
+        {moneyRequests && moneyRequests.length ? (
+          moneyRequests.map((item, index) => {
+            const renk = item.status === "rejected" ? "var(--red)" : item.status === "approved" ? "var(--green)" : "var(--ink-orange)";
+            return (
+              <React.Fragment key={item.id}>
+                {index > 0 && <div className="hline" />}
+                <div className="mk-req">
+                  <span className="mk-req-top">
+                    <b>{item.type_label || T("Talep")}</b>
+                    <em>{money(item.amount)}</em>
+                  </span>
+                  <span className="mk-req-alt">
+                    {item.created_at_label}
+                    {" · "}
+                    <b style={{ color: renk }}>{item.status_label || T("Beklemede")}</b>
+                  </span>
+                  {item.status === "rejected" && item.admin_note && (
+                    <span className="mk-req-not">{T("Not:")} {item.admin_note}</span>
+                  )}
+                  {item.status === "pending" && item.request_type === "withdraw" && onCancelMoneyRequest && (
+                    <button className="mk-btn ghost small" onClick={() => onCancelMoneyRequest(item)}>
+                      {T("Talebi iptal et")}
+                    </button>
+                  )}
+                </div>
+              </React.Fragment>
+            );
+          })
+        ) : (
+          <div className="mk-empty">
+            <Icon name="wallet" size={28} />
+            <b>{T("Kayıt yok")}</b>
+            <span>{T("Henüz para yatırma ya da çekme talebin yok.")}</span>
+          </div>
+        )}
       </section>
 
       {/* ---- menü ---- */}

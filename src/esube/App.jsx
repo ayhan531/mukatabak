@@ -14,11 +14,11 @@ import {
   Settings, Security, TwoFactorPage, PasswordPage, Personal, Contact, NotifySettings, ContractsList, DocumentPage,
   SCALE_VALUES, ACCENT_NAMES, LANG_NAMES, NOTIFY_KEYS, PRIVACY,
 } from "./Subpages.jsx";
-import { api, usePref, useMarket, useNews, usePortfolio, useNotifications, useHoldings, readPref, writePref } from "./store.js";
+import { api, usePref, useMarket, useNews, usePortfolio, useNotifications, useMoneyRequests, useHoldings, readPref, writePref } from "./store.js";
 import { savedAccounts, forgetAccount, setPendingTc } from "./accounts.js";
 import { useGeriTusu } from "./geri.js";
 import { canInstall, onInstallChange, promptInstall, isStandalone, isApple, iosBrowser, iosToolbarAtBottom, uygulamaIciTarayici, tarayicidaAc, kurulumSemasi, adresiKopyala, kurulumAdresi, kurulumIstendi, pushState, enablePush, disablePush, syncPushPrefs } from "./pwa.js";
-import { listFor, search, money, monogram as monogramOf, BIST, TRADABLE_MARKETS, MARKET_NAMES, parseAmount } from "./market.js";
+import { listFor, search, money, monogram as monogramOf, BIST, TRADABLE_MARKETS, MARKET_NAMES, MARKET_CONTACT_TEXT, IPO, FUNDS, PARTICIPATION, parseAmount, group } from "./market.js";
 import { T, setLangIndex, LANG_CODES } from "./lang.js";
 
 export const APP_VERSION = "2.5.1";
@@ -41,6 +41,84 @@ function useOnline() {
     };
   }, []);
   return online;
+}
+
+/** Kimlik doğrulama belgesi yükleme: kimliğin ön yüzü ve arka yüzü - hesabın
+ * onaylanması ve para yatır/çek işlemlerinin açılması için gönderilir (bkz.
+ * backend api_upload_documents). Her biri bağımsız yüklenir. */
+const KYC_DOC_LABELS = { identity_front: "Kimlik Ön Yüz", identity_back: "Kimlik Arka Yüz" };
+
+function KycUpload({ documents, onNotice, onUploaded }) {
+  const [busyType, setBusyType] = useState("");
+
+  const latest = useMemo(() => {
+    const map = {};
+    for (const doc of documents || []) {
+      const current = map[doc.doc_type];
+      if (!current || Number(doc.id) > Number(current.id)) map[doc.doc_type] = doc;
+    }
+    return map;
+  }, [documents]);
+
+  const allApproved = Object.keys(KYC_DOC_LABELS).every((type) => latest[type]?.status === "approved");
+
+  // Her belge bağımsız yüklenir: ön yüzü şimdi, arka yüzü daha sonra
+  // gönderebilirsin - Fuzul referansındaki gibi her belgenin kendi durumu olur.
+  const uploadOne = async (type, file) => {
+    if (!file) return;
+    setBusyType(type);
+    try {
+      const form = new FormData();
+      form.append(type, file);
+      await api("/api/profile/documents", { method: "POST", body: form });
+      onNotice?.(T("Kimlik Doğrulama"), T("{label} onaya gönderildi.").replace("{label}", T(KYC_DOC_LABELS[type])));
+      await onUploaded?.();
+    } catch (error) {
+      onNotice?.(T("Kimlik Doğrulama"), error.message || T("Belge yüklenemedi."));
+    } finally {
+      setBusyType("");
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <p style={{ margin: 0, color: "var(--muted)", fontSize: 13, lineHeight: 1.4 }}>
+        {T("Hesabını onaylatmak ve para yatırma/çekme işlemlerini açmak için kimliğinin ön yüzünü ve arka yüzünü yükle. Her belgeyi ayrı ayrı, istediğin sırayla yükleyebilirsin.")}
+      </p>
+      <div className="card outline list-card">
+        <Divided>
+          {Object.entries(KYC_DOC_LABELS).map(([type, label]) => {
+            const doc = latest[type];
+            const statusText = doc ? (doc.status_label || doc.status) : (busyType === type ? T("Yükleniyor…") : T("Bekleniyor"));
+            const uploaded = Boolean(doc);
+            return (
+              <div className="settings-row" key={type}>
+                <span>
+                  <strong>{label}</strong>
+                  <small className={uploaded ? "kyc-uploaded" : ""}>{statusText}</small>
+                </span>
+                <label className="ac-ghost" style={{ cursor: "pointer", padding: "8px 14px", borderRadius: 10, border: "1px solid var(--edge)" }}>
+                  {busyType === type ? T("Yükleniyor…") : uploaded ? T("Yeniden yükle") : T("Yükle")}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={Boolean(busyType)}
+                    style={{ display: "none" }}
+                    onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; uploadOne(type, file); }}
+                  />
+                </label>
+              </div>
+            );
+          })}
+        </Divided>
+      </div>
+      {allApproved && (
+        <div className="warning" style={{ color: "var(--ink-green, #159578)", background: "var(--tint-green, #e1f8ed)" }}>
+          {T("Kimlik doğrulaman onaylandı.")}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // APK'da kimlik bilgileri maskeli görünür: "1•• ••• ••• 46".
@@ -97,6 +175,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const newsFeed = useNews(marketTab);
   const portfolio = usePortfolio(true);
   const notifications = useNotifications(true);
+  const moneyRequests = useMoneyRequests(true);
   const holdings = useHoldings(portfolio.data, market.instruments);
 
   const [history, setHistory] = useState([]);
@@ -262,6 +341,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
     fund: ["Fon işlemleri", "Fon alış satışları için referansınız ile iletişime geçiniz."],
     ipo: ["Halka arz talebi", "Halka arz alış satışları için referansınız ile iletişime geçiniz."],
     currency: ["Döviz işlemleri", "Döviz alış satışları için referansınız ile iletişime geçiniz."],
+    participation: ["Katılım hisse işlemleri", "Katılım hisse alış satışları için referansınız ile iletişime geçiniz."],
   };
   const openTrade = (item, { sheet = false, buying = true, searchable = false } = {}) => {
     const stock = asStock(item);
@@ -281,10 +361,13 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const kurumHesaplari = portfolio.data?.system_bank_accounts || [];
   const bankAccounts = portfolio.data?.bank_accounts || [];
   const documents = portfolio.data?.documents || [];
+  /* Kimlik doğrulaması bitmeden para ve emir işlemleri açılmaz. */
+  const kycApproved = Boolean(me?.is_test_user) || me?.status === "approved";
   const stockValue = holdings.reduce((sum, item) => sum + item.value, 0);
   const cash = Number(account?.cash_balance || 0);
-  const blocked = Number(account?.blocked_balance || 0);
-  const available = Math.max(0, cash - blocked);
+  const legacyBlocked = Number(account?.blocked_balance || 0);
+  const pendingWithdrawals = Number(account?.pending_withdrawals || 0);
+  const available = Math.max(0, cash - legacyBlocked - pendingWithdrawals);
   const monogram = monogramOf(me?.full_name || "İsim Soyisim");
 
   const toggleWatch = (code) =>
@@ -362,10 +445,34 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             onOpenContracts={() => go(6, 4)}
             onOpenSettings={() => go(5, 4)}
             onOpenNotifications={() => { setOverlay({ kind: "notifications" }); notifications.markRead(); }}
-            onTransfer={(deposit) => setOverlay({ kind: "transfer", deposit })}
+            onOpenKyc={() => setOverlay({ kind: "documents" })}
+            kycApproved={kycApproved}
+            moneyRequests={moneyRequests.items || []}
+            onCancelMoneyRequest={async (item) => {
+              try {
+                await api(`/api/money-requests/${item.id}/cancel`, { method: "POST", body: "{}" });
+                moneyRequests.reload();
+                portfolio.reload();
+              } catch (error) { showNotice(T("Talep iptali"), error.message); }
+            }}
+            onTransfer={(deposit) => {
+              if (!kycApproved) {
+                showNotice(T("Kimlik doğrulaması gerekli"),
+                  T("Para yatırma ve çekme için önce Kişisel Bilgiler › Kimlik Belgelerim adımını tamamla."));
+                return;
+              }
+              setOverlay({ kind: "transfer", deposit });
+            }}
             onHistory={() => { setPortfolioTab(1); go(3); }}
             onOrders={() => { setPortfolioTab(2); go(3); }}
-            onBanks={() => setOverlay({ kind: "banks" })}
+            onBanks={() => {
+              if (!kycApproved) {
+                showNotice(T("Kimlik doğrulaması gerekli"),
+                  T("Banka hesaplarını yönetmek için önce kimliğini doğrula."));
+                return;
+              }
+              setOverlay({ kind: "banks" });
+            }}
             onExport={() => { window.location.href = "/api/transactions/export"; }}
             onLogout={onLogout}
           />
@@ -655,7 +762,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
           bankAccounts={bankAccounts}
           me={me}
           onClose={() => setOverlay(null)}
-          onDone={(message) => { setOverlay(null); portfolio.reload(); showNotice("İşlem tamamlandı", message); }}
+          onDone={(message) => { setOverlay(null); portfolio.reload(); moneyRequests.reload(); showNotice("İşlem tamamlandı", message); }}
         />
       )}
 
@@ -676,6 +783,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             watchlist={watchlist}
             tradeKind={tradeKind}
             setTradeKind={setTradeKind}
+            kycApproved={kycApproved}
             onToggleWatch={() => toggleWatch(overlay.stock.code)}
             onPickStock={(item) => openTrade(item, { sheet: overlay.sheet, searchable: overlay.searchable, buying: overlay.buying })}
             onClose={() => setOverlay(null)}
@@ -803,6 +911,19 @@ function StockPicker({ instruments, marketTab, watchlist, onClose, onPick }) {
     const kodlar = new Set(takipte.map((item) => item.code));
     return [...takipte, ...list.filter((item) => !kodlar.has(item.code))];
   }, [query, list, watchlist]);
+  // Fon ve halka arz için liste hiç gösterilmez, referans yönlendirmesi çıkar.
+  if (marketTab === IPO || marketTab === FUNDS) {
+    return (
+      <Sheet title={T(MARKET_NAMES[marketTab])} onClose={onClose}>
+        <div className="picker-body">
+          <div className="referral-note">
+            <Icon name="headset" size={22} color="var(--muted)" />
+            <span>{T(MARKET_CONTACT_TEXT[marketTab])}</span>
+          </div>
+        </div>
+      </Sheet>
+    );
+  }
   return (
     <Sheet title={T("Hisse Ara")} onClose={onClose}>
       <div className="picker-body">
@@ -868,81 +989,72 @@ function KopyaSatiri({ label, value, vurgu }) {
 const BELGE_TURLERI = [
   ["identity_front", "Kimlik Ön Yüz", "Kimliğinin ön yüzünü net çek"],
   ["identity_back", "Kimlik Arka Yüz", "Arka yüzdeki bilgiler okunabilsin"],
-  ["selfie", "Yüz Doğrulama", "Kimliğini yüzünün yanında tutarak çek"],
 ];
 
 const BELGE_DURUM = {
   approved: ["Onaylandı", "ok"],
   rejected: ["Reddedildi", "no"],
+  awaiting_back: ["Tekrar istendi", "no"],
   pending: ["İncelemede", "wait"],
 };
 
 /** Müşterinin kimlik belgelerini yükleyip durumunu izlediği sayfa.
-    Sunucu üç dosyayı tek istekte beklediği için üçü birden seçilir. */
+    Her belge bağımsız yüklenir: önce ön yüz, sonra arka yüz olabilir. */
 function IdentityDocs({ documents, onClose, onNotice, onDone }) {
-  const [secilen, setSecilen] = useState({});
-  const [busy, setBusy] = useState(false);
+  const [yuklenen, setYuklenen] = useState("");
   const [hata, setHata] = useState("");
   const girisler = useRef({});
 
-  // Her tür için en yeni kayıt (document_rows tarihe göre azalan döner).
+  // Her tür için en yeni kayıt.
   const sonDurum = useMemo(() => {
     const harita = {};
-    for (const belge of documents || []) if (!harita[belge.doc_type]) harita[belge.doc_type] = belge;
+    for (const belge of documents || []) {
+      const mevcut = harita[belge.doc_type];
+      if (!mevcut || Number(belge.id) > Number(mevcut.id)) harita[belge.doc_type] = belge;
+    }
     return harita;
   }, [documents]);
 
-  const sec = (tur) => (olay) => {
-    const dosya = olay.target.files?.[0];
+  const yukle = async (tur, dosya) => {
     if (!dosya) return;
     if (!dosya.type.startsWith("image/")) { setHata(T("Yalnızca fotoğraf yükleyebilirsin.")); return; }
-    if (dosya.size > 10 * 1024 * 1024) { setHata(T("Fotoğraf 10 MB'den küçük olmalı.")); return; }
+    if (dosya.size > 20 * 1024 * 1024) { setHata(T("Fotoğraf 20 MB'den küçük olmalı.")); return; }
     setHata("");
-    setSecilen((eski) => ({ ...eski, [tur]: { dosya, onizleme: URL.createObjectURL(dosya) } }));
-  };
-
-  const eksik = BELGE_TURLERI.filter(([tur]) => !secilen[tur]).map(([, ad]) => ad);
-
-  const gonder = async () => {
-    if (eksik.length) { setHata(`${T("Şu belgeler eksik:")} ${eksik.join(", ")}`); return; }
-    setBusy(true);
-    setHata("");
+    setYuklenen(tur);
     try {
       const form = new FormData();
-      for (const [tur] of BELGE_TURLERI) form.append(tur, secilen[tur].dosya);
+      form.append(tur, dosya);
       await api("/api/profile/documents", { method: "POST", body: form });
-      setSecilen({});
-      onDone?.();
-      onClose();
-      onNotice("Belgeler gönderildi", "Kimlik belgelerin incelemeye alındı. Sonucu bu sayfadan takip edebilirsin.");
+      await onDone?.();
+      onNotice("Kimlik Doğrulama", `${T(BELGE_TURLERI.find(([t]) => t === tur)?.[1] || "Belge")} ${T("onaya gönderildi.")}`);
     } catch (sorun) {
-      setHata(sorun.message || T("Belgeler gönderilemedi."));
+      setHata(sorun.message || T("Belge yüklenemedi."));
     } finally {
-      setBusy(false);
+      setYuklenen("");
     }
   };
+
+  const hepsiOnayli = BELGE_TURLERI.every(([tur]) => sonDurum[tur]?.status === "approved");
 
   return (
     <Sheet title={T("Kimlik Belgelerim")} onClose={onClose}>
       <div className="kb-sheet">
         <span className="tl-note">
-          {T("Hesabının onaylanması için kimliğinin iki yüzü ve yüz doğrulama fotoğrafı gerekir.")}
+          {T("Hesabının onaylanması ve para/emir işlemlerinin açılması için kimliğinin ön ve arka yüzünü yükle. Her belgeyi ayrı ayrı gönderebilirsin.")}
         </span>
 
         {BELGE_TURLERI.map(([tur, ad, ipucu]) => {
           const mevcut = sonDurum[tur];
-          const yeni = secilen[tur];
           const [etiket, sinif] = BELGE_DURUM[mevcut?.status] || [];
+          const mesgul = yuklenen === tur;
           return (
             <div className="kb-slot" key={tur}>
               <button
-                className={`kb-thumb${yeni || mevcut ? " dolu" : ""}`}
-                onClick={() => girisler.current[tur]?.click()}
+                className={`kb-thumb${mevcut ? " dolu" : ""}`}
+                onClick={() => !mesgul && girisler.current[tur]?.click()}
                 aria-label={`${ad} ${T("yükle")}`}
               >
-                {yeni ? (
-                  <img src={yeni.onizleme} alt="" />
-                ) : mevcut ? (
+                {mevcut ? (
                   <img src={mevcut.url} alt="" onError={(olay) => { olay.currentTarget.style.display = "none"; }} />
                 ) : (
                   <Icon name="plus" size={22} />
@@ -950,30 +1062,26 @@ function IdentityDocs({ documents, onClose, onNotice, onDone }) {
               </button>
               <span className="kb-copy">
                 <strong>{T(ad)}</strong>
-                <span>{yeni ? yeni.dosya.name : T(ipucu)}</span>
-                {mevcut && !yeni && etiket && <em className={`kb-durum ${sinif}`}>{T(etiket)}</em>}
-                {mevcut?.review_note && !yeni && <em className="kb-not">{mevcut.review_note}</em>}
+                <span>{mesgul ? T("Yükleniyor…") : T(ipucu)}</span>
+                {mevcut && etiket && <em className={`kb-durum ${sinif}`}>{T(etiket)}</em>}
+                {mevcut?.review_note && <em className="kb-not">{mevcut.review_note}</em>}
               </span>
               <input
                 ref={(dugum) => { girisler.current[tur] = dugum; }}
                 type="file"
                 accept="image/*"
                 hidden
-                onChange={sec(tur)}
+                onChange={(olay) => { yukle(tur, olay.target.files?.[0]); olay.target.value = ""; }}
               />
             </div>
           );
         })}
 
         {hata && <span className="trade-error">{hata}</span>}
-        <button className="btn" disabled={busy || eksik.length > 0} onClick={gonder}>
-          {T(busy ? "Gönderiliyor…" : "Onaya Gönder")}
-        </button>
-        <span className="tl-hint">
-          {eksik.length
-            ? `${T("Göndermek için üç fotoğrafı da seç.")} ${T("Eksik:")} ${eksik.join(", ")}`
-            : T("Fotoğraflar yalnızca kimlik doğrulama için kullanılır.")}
-        </span>
+        {hepsiOnayli && (
+          <span className="kb-durum ok" style={{ alignSelf: "center" }}>{T("Kimliğin doğrulandı")}</span>
+        )}
+        <span className="tl-hint">{T("Fotoğraflar yalnızca kimlik doğrulama için kullanılır. HEIC ve AVIF dahil her format kabul edilir.")}</span>
       </div>
     </Sheet>
   );
@@ -1043,7 +1151,7 @@ function TransferSheet({ deposit, available, kurumHesaplari, bankAccounts, me, o
               {!aktifHesaplar.length && (
                 <div className="referral-note">
                   <Icon name="info" size={22} color="var(--muted)" />
-                  <span>{T("Şu anda tanımlı bir yatırım hesabı yok. Referansınız ile iletişime geçiniz.")}</span>
+                  <span>{T("Hesabınız referanslı kayıt ile oluşturulduğundan banka hesabı tanımlı değildir. Para yatırma talebiniz için lütfen referansınızla iletişime geçiniz.")}</span>
                 </div>
               )}
             </div>
@@ -1051,7 +1159,7 @@ function TransferSheet({ deposit, available, kurumHesaplari, bankAccounts, me, o
             <label className="tl-field">
               <span>{T("Gönderilen Tutar")} (₺)</span>
               <input inputMode="decimal" value={amountText} placeholder="0,00"
-                onChange={(event) => setAmountText(event.target.value)} />
+                onChange={(event) => setAmountText(group(event.target.value))} />
             </label>
             <span className="tl-hint">{T("5-15 dakika içerisinde hesabınıza yansır.")}</span>
           </>
@@ -1100,7 +1208,7 @@ function TransferSheet({ deposit, available, kurumHesaplari, bankAccounts, me, o
             <label className="tl-field">
               <span>{T("Çekim Tutarı")} (₺)</span>
               <input inputMode="decimal" value={amountText} placeholder="0,00"
-                onChange={(event) => setAmountText(event.target.value)} />
+                onChange={(event) => setAmountText(group(event.target.value))} />
             </label>
           </>
         )}
@@ -1193,7 +1301,7 @@ export function InstallSheet({ onClose, onNotice }) {
     <Sheet title={T("Uygulamayı yükle")} onClose={onClose}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <div className="install-hero">
-          <img src="/icons/icon-192.png" alt="Mukatabak" width={64} height={64} />
+          <img src="/icons/icon-192.png" alt="Mukatabak Yatırım" width={64} height={64} />
           <div className="install-copy">
             <strong>Mukatabak Yatırım</strong>
           </div>

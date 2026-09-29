@@ -22,6 +22,7 @@ function Root() {
   const [ready, setReady] = useState(false);
   // Ana ekrandaki kısayoldan açıldıysa tanıtım sayfası atlanır, doğrudan e-şube açılır.
   const [authOpen, setAuthOpen] = useState(() => isStandalone());
+  const [authMode, setAuthMode] = useState("login");
   const [showAdmin, setShowAdmin] = useState(false);
   const [adminData, setAdminData] = useState(null);
   // Kurulum bağlantısıyla gelenlerde kurulum ekranı tanıtım sayfasının üstünde açılır.
@@ -49,6 +50,15 @@ function Root() {
 
   // Giriş yapıldıysa ve bildirim izni zaten verilmişse aboneliği tazele.
   useEffect(() => { if (me) refreshPush(); }, [me]);
+
+  // Hesap durumu (onay/KYC) admin tarafından değiştirildiğinde bunu görmek
+  // için sayfayı yeniden açmaya gerek kalmasın: giriş yapılıyken /api/me
+  // periyodik olarak tazelenir.
+  useEffect(() => {
+    if (!me) return;
+    const zaman = setInterval(loadMe, 30_000);
+    return () => clearInterval(zaman);
+  }, [me, loadMe]);
 
   // E-şube açıkken gövde kaydırmasını kapat; kurumsal sayfada serbest bırak.
   useEffect(() => {
@@ -105,7 +115,7 @@ function Root() {
   if (!me && !authOpen) {
     return (
       <>
-        <CorporateLanding openAuth={() => setAuthOpen(true)} />
+        <CorporateLanding openAuth={(mode) => { setAuthMode(mode === "register" ? "register" : "login"); setAuthOpen(true); }} />
         {kurEkrani && <InstallSheet onClose={() => setKurEkrani(false)} onNotice={(baslik, metin) => setUyari({ baslik, metin })} />}
         {uyari && (
           <Dialog title={uyari.baslik} onClose={() => setUyari(null)}>
@@ -116,7 +126,7 @@ function Root() {
       </>
     );
   }
-  if (!me) return <AuthScreen onAuthed={(data) => setMe(normalize(data))} back={() => setAuthOpen(false)} />;
+  if (!me) return <AuthScreen onAuthed={(data) => setMe(normalize(data))} back={() => setAuthOpen(false)} initialMode={authMode} />;
   if (me.role === "admin" && showAdmin) {
     return <AdminConsole data={adminData || {}} refresh={loadAdmin} logout={logout} onClose={() => setShowAdmin(false)} />;
   }

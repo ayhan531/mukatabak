@@ -376,7 +376,8 @@ export default function CorporateLanding({ openAuth }) {
             >{key}</a>
           ))}
         </nav>
-        <button className="corporate-login" onClick={openAuth}>E-Şube Giriş <ArrowUpRight size={16} /></button>
+        <button className="corporate-register" onClick={() => openAuth("register")}>Kayıt Ol</button>
+        <button className="corporate-login" onClick={() => openAuth("login")}>E-Şube Giriş <ArrowUpRight size={16} /></button>
         <button className="corporate-menu" aria-label="Menü" aria-expanded={menu} onClick={() => setMenu(!menu)}>
           {menu ? <X /> : <Menu />}
         </button>

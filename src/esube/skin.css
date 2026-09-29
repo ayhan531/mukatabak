@@ -1012,3 +1012,21 @@ body.esube-open { background: var(--bg5); }
 }
 [data-theme="dark"] .mk-logout { background: rgba(255, 255, 255, .06); border-color: rgba(255, 107, 107, .3); }
 .mk-btn.ghost { border: 1px solid var(--edge); box-shadow: 0 8px 18px rgba(46, 62, 128, .07); }
+
+/* Kimlik doğrulama uyarısı ve bakiye geçmişi (Hesap ekranı) */
+.mk-kyc { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; }
+.mk-kyc .tile { flex: none; }
+.mk-kyc span { flex: 1; min-width: 0; display: block; }
+.mk-kyc b { display: block; font-size: calc(15px * var(--s)); font-weight: 600; color: var(--ink); }
+.mk-kyc s { display: block; text-decoration: none; font-size: calc(12.5px * var(--s)); color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.mk-menu .t8, .mk-kyc .t8 { background: #fdeaea; color: var(--red); }
+.mk-kyc .chev { flex: none; color: var(--muted); }
+.mk-btn.kilitli { opacity: .55; }
+.mk-btn.small { height: 38px; font-size: calc(13px * var(--s)); width: max-content; padding: 0 14px; }
+
+.mk-history .mk-req { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; }
+.mk-history .mk-req-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.mk-history .mk-req-top b { font-size: calc(14.5px * var(--s)); font-weight: 600; color: var(--ink); }
+.mk-history .mk-req-top em { font-style: normal; font-weight: 700; font-size: calc(14.5px * var(--s)); color: var(--ink); }
+.mk-history .mk-req-alt { font-size: calc(12.5px * var(--s)); color: var(--muted); }
+.mk-history .mk-req-not { font-size: calc(12px * var(--s)); color: var(--red); line-height: 1.35; }

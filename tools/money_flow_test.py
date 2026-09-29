@@ -87,14 +87,13 @@ try:
         bekle("yatirma onayi", kod == 200, veri.get("error"))
         bekle("yatirma bakiyeye islendi", abs(nakit() - (baslangic + 25000)) < 0.01, nakit())
 
-    # --- 2) Gerekcesiz onay reddedilmeli
+    # --- 2) Gerekce artik zorunlu degil (ottoman ile ayni): kisa not da gecer
     kod, veri = cagir(musteri, "/api/money-requests", {
         "request_type": "deposit", "amount": 1000, "account_ref": "TR330006100519786457841326"})
     dep2 = veri.get("id") or veri.get("request", {}).get("id")
     if dep2:
-        kod, _ = cagir(admin, f"/api/admin/money/{dep2}/approve", {"reason": "kisa"})
-        bekle("gerekcesiz onay reddedildi", kod == 422, kod)
-        cagir(admin, f"/api/admin/money/{dep2}/reject", {"reason": "Test kaydi kapatildi"})
+        kod, _ = cagir(admin, f"/api/admin/money/{dep2}/reject", {"reason": ""})
+        bekle("gerekcesiz ret kabul ediliyor", kod == 200, kod)
 
     # --- 3) Para cekme talebi -> onay -> bakiye azalir, IBAN kaydedilir
     once = nakit()

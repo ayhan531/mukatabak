@@ -662,3 +662,18 @@
   .corporate-footer h4 { font-size: 13px; }
   .corporate-footer a, .corporate-footer li, .corporate-footer p { font-size: 13.5px; }
 }
+
+/* Başlıktaki "Kayıt Ol" düğmesi: girişin yanında, daha sakin. */
+.corporate-register{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:11px 17px;border-radius:12px;
+  font-size:14.5px;font-weight:600;color:var(--ink);
+  background:rgba(255,255,255,.9);border:1px solid var(--line);
+  box-shadow:var(--shadow-sm);transition:transform .18s,box-shadow .18s;
+}
+.corporate-register:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+@media(max-width:860px){
+  .corporate-register{margin-left:auto;font-size:13px;padding:10px 13px}
+  .corporate-login{margin-left:8px}
+}
+@media(max-width:420px){ .corporate-register{display:none} }

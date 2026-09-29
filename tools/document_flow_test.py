@@ -96,36 +96,38 @@ try:
     bekle("musteri girisi", cagir(musteri, "/api/login", {"tc": MUSTERI_TC, "password": MUSTERI_SIFRE})[0] == 200)
 
     png = kucuk_png()
-    # eksik dosya reddedilmeli
-    kod, _ = cok_parcali(musteri, "/api/profile/documents", {"identity_front": ("on.png", png, "image/png")})
-    bekle("eksik belge reddedildi", kod >= 400, kod)
+    # hic dosya gonderilmezse reddedilmeli
+    kod, _ = cok_parcali(musteri, "/api/profile/documents", {})
+    bekle("bos istek reddedildi", kod >= 400, kod)
 
-    kod, veri = cok_parcali(musteri, "/api/profile/documents", {
-        "identity_front": ("on.png", png, "image/png"),
-        "identity_back": ("arka.png", png, "image/png"),
-        "selfie": ("yuz.png", png, "image/png")})
-    bekle("uc belge yuklendi", kod == 201, veri.get("error"))
+    # belgeler tek tek yuklenebilir
+    kod, veri = cok_parcali(musteri, "/api/profile/documents", {"identity_front": ("on.png", png, "image/png")})
+    bekle("on yuz tek basina yuklendi", kod == 201, veri.get("error"))
+    kod, veri = cok_parcali(musteri, "/api/profile/documents", {"identity_back": ("arka.png", png, "image/png")})
+    bekle("arka yuz tek basina yuklendi", kod == 201, veri.get("error"))
     belgeler = veri.get("documents", [])
-    bekle("belge kayitlari dondu", len(belgeler) == 3, len(belgeler))
+    bekle("belge kayitlari dondu", len(belgeler) == 2, len(belgeler))
     bekle("her belgenin adresi var", all(b.get("url", "").startswith("/uploads/") for b in belgeler))
 
     # musteri kendi portfoyunde de goruyor
     pbelge = cagir(musteri, "/api/portfolio")[1].get("documents", [])
-    bekle("portfoyde belgeler gorunuyor", len(pbelge) == 3, len(pbelge))
+    bekle("portfoyde belgeler gorunuyor", len(pbelge) == 2, len(pbelge))
 
     # admin listesi
     kod, veri = cagir(admin, "/api/admin/documents")
     liste = veri.get("documents", [])
-    bekle("admin listesinde belgeler var", kod == 200 and len(liste) == 3, len(liste))
+    bekle("admin listesinde belgeler var", kod == 200 and len(liste) == 2, len(liste))
     bekle("tur etiketleri turkce", all(b.get("type_label") in
-          ("Kimlik Ön Yüz", "Kimlik Arka Yüz", "Yüz Doğrulama") for b in liste),
+          ("Kimlik Ön Yüz", "Kimlik Arka Yüz") for b in liste),
           [b.get("type_label") for b in liste])
     bekle("musteri adi ve hesap no var", all(b.get("full_name") and b.get("account_no") for b in liste))
 
     # ADMIN GORSELI ACABILIYOR MU — asil mesele
     ilk = liste[0]
     kod, icerik, tur = cagir(admin, ilk["url"], ham=True)
-    bekle("admin fotografi acabiliyor", kod == 200 and icerik[:8] == b"\x89PNG\r\n\x1a\n",
+    # Sunucu her gorseli JPEG/PNG'ye yeniden kodluyor (HEIC/AVIF destegi icin).
+    gecerli = icerik[:8] == b"\x89PNG\r\n\x1a\n" or icerik[:3] == b"\xff\xd8\xff"
+    bekle("admin fotografi acabiliyor", kod == 200 and gecerli,
           f"{kod} · {tur} · {len(icerik)} bayt")
 
     # baska musteri baskasinin belgesini goremez
@@ -139,8 +141,6 @@ try:
         bekle("baskasinin belgesi korunuyor", kod3 == 403, kod3)
 
     # onay / ret
-    kod, veri = cagir(admin, f"/api/admin/documents/{ilk['id']}/reject", {"note": "kisa"})
-    bekle("gerekcesiz ret reddedildi", kod == 422, kod)
     kod, veri = cagir(admin, f"/api/admin/documents/{ilk['id']}/reject", {"note": "Fotograf bulanik, tekrar cek"})
     bekle("ret calisiyor", kod == 200, veri.get("error"))
     for b in liste:

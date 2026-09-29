@@ -49,8 +49,8 @@ const gir = async (p, tc, sifre) => {
 
   const hedefler = ["Dashboard", "Kullanıcılar", "Portföyler", "Bakiye Detayları", "Kredi Başvuruları",
     "Kredi Ayarları", "T+2 Takip", "Onay Bekleyenler", "Banka Hesapları", "Para Yatırma Talepleri",
-    "Para Yükleme", "Para Çekme", "Hisse Açıklamaları", "Sistem Ayarları", "Piyasa Kontrolü",
-    "Emirler", "Belgeler", "Denetim Kaydı"];
+    "Bakiye Yönetimi", "Para Çekme", "Hisse Açıklamaları", "Sistem Ayarları", "Piyasa Kontrolü",
+    "Emirler", "Kullanıcı Doğrulama", "Denetim Kaydı"];
   for (const ad of hedefler) {
     const el = await p.$(`button:has-text("${ad}")`);
     if (!el) { ok("sayfa " + ad, false, "menüde yok"); continue; }
@@ -77,20 +77,8 @@ const gir = async (p, tc, sifre) => {
   await gir(p, ADMIN_TC, ADMIN_SIFRE);
   await (await p.$('button[title="Admin"]')).click(); await p.waitForTimeout(2200);
 
-  // yonetici kilidini ac
-  const kilit = await p.$('button:has-text("Kilidi aç")');
-  ok("kilit çubuğu var", Boolean(kilit));
-  if (kilit) {
-    await kilit.click(); await p.waitForTimeout(700);
-    const sifre = await p.$('.ac-dialog input[type="password"], dialog input[type="password"], input[type="password"]');
-    if (!sifre) ok("kilit şifre kutusu", false);
-    else {
-      await sifre.fill(ADMIN_SIFRE);
-      await p.keyboard.press("Enter"); await p.waitForTimeout(1500);
-      const acik = await p.$('text="Yönetici kilidi açık"');
-      ok("yönetici kilidi açıldı", Boolean(acik));
-    }
-  }
+  /* Yönetici kilidi arayüzü ottoman'da kaldırıldı; şifre doğrulaması
+     gerektiğinde iletişim kutusu kendiliğinden açılıyor. */
 
   // Para Yatirma Talepleri -> ilk talebi onayla
   const menuBtn = await p.$('button:has-text("Para Yatırma Talepleri")');
@@ -128,6 +116,33 @@ const gir = async (p, tc, sifre) => {
   ok("admin telefonda taşmıyor", t <= 0, "fark " + t);
   await p.screenshot({ path: `${SHOT}/adm-mobil.png` });
   await p.close();
+}
+
+/* Müşteri panelini test etmeden önce kimliğini onayla: KYC kapısı
+   açılmadan para ekranları kilitli kalıyor. */
+{
+  const kimlikOnayla = async () => {
+    const ctx = await b.newContext();
+    const p = await ctx.newPage();
+    const cagir = (yol, veri, yontem) => p.evaluate(async ([y, v, m]) => {
+      const r = await fetch(y, { method: m || (v ? "POST" : "GET"), credentials: "include",
+        headers: v ? { "Content-Type": "application/json" } : {}, body: v ? JSON.stringify(v) : undefined });
+      return { kod: r.status, veri: await r.json().catch(() => ({})) };
+    }, [yol, veri || null, yontem || null]);
+    await p.goto(TABAN + "/", { waitUntil: "domcontentloaded" });
+    await cagir("/api/login", { tc: ADMIN_TC, password: ADMIN_SIFRE });
+    await cagir("/api/admin/step-up", { password: ADMIN_SIFRE });
+    const { veri } = await cagir("/api/admin/documents");
+    for (const belge of veri.documents || []) {
+      await cagir(`/api/admin/documents/${belge.id}/approve`, { note: "Gorsel dogrulandi" });
+    }
+    const kul = await cagir("/api/admin/users");
+    const musteri = (kul.veri.users || []).find((u) => String(u.tc) === MUSTERI_TC);
+    if (musteri) await cagir(`/api/admin/users/${musteri.id}/approve`, { reason: "Kimlik dogrulandi" });
+    ok("müşteri kimliği onaylandı", Boolean(musteri), musteri ? musteri.full_name : "müşteri yok");
+    await p.close(); await ctx.close();
+  };
+  await kimlikOnayla();
 }
 
 /* ============ 3) KULLANICI PANELI (Hesap ve alt sayfalar) ============ */

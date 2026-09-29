@@ -1,11 +1,13 @@
 // Eski e-şube kabuğundan korunan parçalar: giriş ekranı ve admin paneli.
 // Bunlar APK'da bulunmayan, kuruma özgü ekranlardır; extra.css/style.css ile biçimlenir.
-import React, { useEffect, useState } from "react";
-import { Bell, CheckCircle2, Eye, EyeOff, Moon, ShieldCheck, Sun, X } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Bell, Calendar, CheckCircle2, Eye, EyeOff, Moon, ShieldCheck, Sun, X } from "lucide-react";
 import { api } from "./esube/store.js";
 import { rememberAccount, takePendingTc } from "./esube/accounts.js";
 import { ILLER, ilceleri } from "./esube/regions.js";
 import { gecerliTc, tcHatasi } from "./esube/kimlik.js";
+import Icon from "./esube/icons.jsx";
+import { CONTRACTS } from "./esube/contracts.js";
 
 const money = (value) => `₺${Number(value || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const compactDate = () => new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "long", year: "numeric" });
@@ -33,8 +35,26 @@ function LiveDataStrip({ marketMeta, newsMeta }) {
   </section>;
 }
 
+function TickerSpark({ series, up }) {
+  if (!series || series.length < 3) return null;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const span = max - min || 1;
+  const w = 34, h = 14;
+  const stepX = w / (series.length - 1);
+  const points = series
+    .map((v, i) => `${(i * stepX).toFixed(1)},${(h - ((v - min) / span) * h).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg className="auth-ticker-spark" width={w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <polyline points={points} fill="none" stroke={up ? "#13b26b" : "#ef4655"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function AuthTicker() {
   const [rows, setRows] = useState([]);
+  const [series, setSeries] = useState({});
   useEffect(() => {
     let canli = true;
     const cek = () => api("/api/market")
@@ -42,7 +62,14 @@ function AuthTicker() {
         if (!canli) return;
         const hisseler = (veri.quotes || []).filter((q) => q.asset_class === "stock" && Number(q.price) > 0);
         hisseler.sort((a, b) => Number(b.change_pct || 0) - Number(a.change_pct || 0));
-        setRows(hisseler.slice(0, 14));
+        const top = hisseler.slice(0, 14);
+        setRows(top);
+        const semboller = top.map((r) => r.symbol).join(",");
+        if (semboller) {
+          api(`/api/market/sparklines?symbols=${encodeURIComponent(semboller)}`)
+            .then((veri2) => { if (canli) setSeries(veri2.series || {}); })
+            .catch(() => {});
+        }
       })
       .catch(() => {});
     cek();
@@ -54,14 +81,19 @@ function AuthTicker() {
   return (
     <div className="auth-ticker" aria-hidden="true">
       <div className="auth-ticker-lane">
-        {seri.map((row, index) => (
-          <span key={`${row.symbol}-${index}`}>
-            <b>{row.symbol}</b>
-            <i className={Number(row.change_pct) >= 0 ? "up" : "down"}>
-              {Number(row.change_pct) >= 0 ? "+" : "−"}%{Math.abs(Number(row.change_pct || 0)).toFixed(2).replace(".", ",")}
-            </i>
-          </span>
-        ))}
+        {seri.map((row, index) => {
+          const yukseldi = Number(row.change_pct) >= 0;
+          return (
+            <span key={`${row.symbol}-${index}`}>
+              <b>{row.symbol}</b>
+              <em>₺{Number(row.price).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</em>
+              <TickerSpark series={series[row.symbol]} up={yukseldi} />
+              <i className={yukseldi ? "up" : "down"}>
+                {yukseldi ? "+" : "−"}{Math.abs(Number(row.change_pct || 0)).toFixed(2).replace(".", ",")}%
+              </i>
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -83,17 +115,141 @@ const SifreAlani = ({ name, placeholder, value, onChange }) => {
   );
 };
 
+/** Backend password_is_strong ile birebir aynı 4 kriter: uzunluk>=10,
+    büyük harf, küçük harf, rakam. "guclu" olmadan hesap açılamaz. */
+export const sifreGucu = (value) => {
+  const v = String(value || "");
+  if (!v) return null;
+  const kriterler = [v.length >= 10, /[A-ZÇĞİÖŞÜ]/.test(v), /[a-zçğıöşü]/.test(v), /\d/.test(v)];
+  const puan = kriterler.filter(Boolean).length;
+  return puan === 4 ? "guclu" : puan >= 2 ? "orta" : "zayif";
+};
+
+const SifreGucMetre = ({ value }) => {
+  const seviye = sifreGucu(value);
+  if (!seviye) return null;
+  const etiket = { zayif: "Zayıf", orta: "Orta", guclu: "Güçlü" }[seviye];
+  return (
+    <div className={`auth-strength ${seviye}`}>
+      <i /><i /><i />
+      <span>{etiket}</span>
+    </div>
+  );
+};
+
+/** GG/AA/YYYY: rakamlar yazıldıkça otomatik "/" ekler; sağdaki takvim ikonu
+    gizli bir native tarih girişini tetikler (her tarayıcıda kendi seçicisini açar). */
+const dogumBicimle = (raw) => {
+  const rakam = String(raw || "").replace(/\D/g, "").slice(0, 8);
+  const gun = rakam.slice(0, 2), ay = rakam.slice(2, 4), yil = rakam.slice(4, 8);
+  return [gun, ay, yil].filter(Boolean).join("/");
+};
+
+const DogumAlani = ({ value, onChange }) => {
+  const isoValue = (() => {
+    const [g, a, y] = String(value || "").split("/");
+    return g && a && y && y.length === 4 ? `${y}-${a.padStart(2, "0")}-${g.padStart(2, "0")}` : "";
+  })();
+  return (
+    <span className="auth-secret auth-dob">
+      <input inputMode="numeric" placeholder="GG/AA/YYYY" value={value}
+        onChange={(event) => onChange(dogumBicimle(event.target.value))} required maxLength={10} />
+      <span className="auth-dob-pick">
+        <Calendar size={18} />
+        <input type="date" tabIndex={-1} aria-label="Takvimden seç" value={isoValue}
+          onChange={(event) => {
+            const [y, a, g] = event.target.value.split("-");
+            if (y && a && g) onChange(`${g}/${a}/${y}`);
+          }} />
+      </span>
+    </span>
+  );
+};
+
+/** Metni başlık/madde/paragraf bloklarına ayırır (Sözleşmeler ekranındaki DocumentPage ile aynı mantık). */
+const belgeBloklariniAyir = (doc) => {
+  const out = [];
+  for (const raw of (doc?.body || "").split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("* ")) { out.push({ type: "bullet", text: line.slice(2) }); continue; }
+    const numbered = line.length > 2 && /^\d/.test(line) && line.indexOf(". ") >= 0 && line.indexOf(". ") < 4;
+    const heading = line.startsWith("Madde ") || numbered || (line.length < 64 && !".;:,".includes(line[line.length - 1]));
+    out.push({ type: heading ? "head" : "text", text: line });
+  }
+  return out;
+};
+
+const KAYIT_SOZLESME_ADIMLARI = () => {
+  const bul = (anahtar) => CONTRACTS.find((c) => c.title.includes(anahtar));
+  return [
+    { key: "kvkk", title: "KVKK Aydınlatma Metni", doc: bul("Kişisel Verilerin Korunması") },
+    { key: "risk", title: "Risk Bildirimi", doc: bul("Risk Bildirimi") },
+    { key: "sozlesme", title: "E-Şube Sözleşmesi", doc: bul("Çerçeve Sözleşmesi") },
+  ].filter((adim) => adim.doc);
+};
+
+/** Sözleşmeleri okumadan onaylanamaz: her metin sonuna kadar kaydırılmadan
+    "Devam Et" açılmaz; son metin de okunduktan sonra kabul tamamlanır. */
+function SozlesmeModal({ onClose, onComplete }) {
+  const adimlar = useMemo(KAYIT_SOZLESME_ADIMLARI, []);
+  const [index, setIndex] = useState(0);
+  const [okunanlar, setOkunanlar] = useState(() => new Set());
+  const adim = adimlar[index];
+  const okundu = adim ? okunanlar.has(adim.key) : false;
+  const blocks = useMemo(() => belgeBloklariniAyir(adim?.doc), [adim]);
+
+  const kaydirildi = (event) => {
+    const el = event.currentTarget;
+    if (el.scrollHeight - (el.scrollTop + el.clientHeight) < 16) {
+      setOkunanlar((eski) => (eski.has(adim.key) ? eski : new Set(eski).add(adim.key)));
+    }
+  };
+
+  const devamEt = () => {
+    if (!okundu) return;
+    if (index < adimlar.length - 1) setIndex((i) => i + 1);
+    else onComplete();
+  };
+
+  if (!adim) return null;
+
+  return (
+    <div className="modal-layer sozlesme-layer" onClick={onClose}>
+      <section className="trade-modal sozlesme-modal" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="close" onClick={onClose} aria-label="Kapat"><X size={18} /></button>
+        <div className="sozlesme-progress">
+          {adimlar.map((a, i) => <span key={a.key} className={i <= index ? "on" : ""} />)}
+        </div>
+        <h2>{adim.title}</h2>
+        <div className="doc-card sozlesme-body" onScroll={kaydirildi}>
+          {blocks.map((block, i) =>
+            block.type === "head" ? <h3 key={i}>{block.text}</h3>
+              : block.type === "bullet" ? <div className="bullet" key={i}><span>•</span><span>{block.text}</span></div>
+                : <p key={i}>{block.text}</p>
+          )}
+        </div>
+        {!okundu && <small className="sozlesme-hint">Devam edebilmek için metnin tamamını okuyup en alta kaydırmalısın.</small>}
+        <button type="button" className="confirm" disabled={!okundu} onClick={devamEt}>
+          {index < adimlar.length - 1 ? "Okudum, Devam Et" : "Okudum, Kabul Ediyorum"}
+        </button>
+      </section>
+    </div>
+  );
+}
+
 const BOS_KAYIT = {
   ad: "", soyad: "", tc: "", dogum: "", il: "", ilce: "",
   telefon: "", eposta: "", referans: "", sifre: "", sifre2: "",
 };
 
-function AuthScreen({ onAuthed, back }) {
-  const [mode, setMode] = useState("login");
+function AuthScreen({ onAuthed, back, initialMode }) {
+  const [mode, setMode] = useState(initialMode === "register" ? "register" : "login");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [kayit, setKayit] = useState(BOS_KAYIT);
   const [sozlesme, setSozlesme] = useState(false);
+  const [sozlesmeModal, setSozlesmeModal] = useState(false);
   // Hesap değiştirilirken kimlik numarası hazır gelir; şifre her zaman istenir.
   const [prefillTc] = useState(() => takePendingTc());
   const [girisTc, setGirisTc] = useState(prefillTc);
@@ -208,7 +364,7 @@ function AuthScreen({ onAuthed, back }) {
               {kayit.tc.length >= 11 && !gecerliTc(kayit.tc) && <small className="alan-hata">{tcHatasi(kayit.tc)}</small>}
               {kayit.tc.length === 11 && gecerliTc(kayit.tc) && <small className="alan-tamam">Kimlik numarası doğrulandı</small>}
             </Alan>
-            <Alan label="Doğum Tarihi"><input inputMode="numeric" placeholder="GG/AA/YYYY" value={kayit.dogum} onChange={alan("dogum")} required /></Alan>
+            <Alan label="Doğum Tarihi"><DogumAlani value={kayit.dogum} onChange={(v) => setKayit((eski) => ({ ...eski, dogum: v }))} /></Alan>
           </div>
 
           <h4>İKAMET BİLGİLERİ</h4>
@@ -241,21 +397,29 @@ function AuthScreen({ onAuthed, back }) {
           <div className="auth-box">
             <Alan label="Şifre" genis>
               <SifreAlani name="password" placeholder="En az 10 karakter, büyük-küçük harf ve rakam" value={kayit.sifre} onChange={alan("sifre")} />
+              <SifreGucMetre value={kayit.sifre} />
             </Alan>
             <Alan label="Şifre Tekrar" genis>
               <SifreAlani name="password_confirm" placeholder="Şifrenizi tekrar girin" value={kayit.sifre2} onChange={alan("sifre2")} />
             </Alan>
           </div>
 
-          <label className="checkline">
-            <input type="checkbox" checked={sozlesme} onChange={(event) => setSozlesme(event.target.checked)} />
-            KVKK aydınlatma metni, risk bildirimi ve e-şube sözleşmelerini okudum, kabul ediyorum.
-          </label>
+          <button type="button" className={`checkline sozlesme-trigger${sozlesme ? " on" : ""}`} onClick={() => setSozlesmeModal(true)}>
+            <span className="fake-check">{sozlesme && <Icon name="check" size={12} color="#fff" />}</span>
+            <span>KVKK aydınlatma metni, risk bildirimi ve e-şube sözleşmelerini {sozlesme ? "okudum, kabul ettim." : "okumak ve kabul etmek için dokun."}</span>
+          </button>
           {message && <div className="warning">{message}</div>}
-          <button className="confirm" disabled={busy}>{busy ? "Gönderiliyor…" : "Hesap Oluştur"}</button>
+          <button className="confirm" disabled={busy || sifreGucu(kayit.sifre) !== "guclu"}>{busy ? "Gönderiliyor…" : "Hesap Oluştur"}</button>
         </form>
       )}
-    </main><div className="home-indicator" /></div></div>
+    </main>
+    {sozlesmeModal && (
+      <SozlesmeModal
+        onClose={() => setSozlesmeModal(false)}
+        onComplete={() => { setSozlesme(true); setSozlesmeModal(false); }}
+      />
+    )}
+    <div className="home-indicator" /></div></div>
   );
 }
 

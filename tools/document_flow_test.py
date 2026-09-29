@@ -152,6 +152,18 @@ try:
     uid = liste[0]["user_id"]
     kod, veri = cagir(admin, f"/api/admin/users/{uid}/approve", {"reason": "Kimlik dogrulandi"})
     bekle("belgeler onaylaninca kullanici onaylandi", kod == 200, veri.get("error"))
+    # --- 9) Kullanici kendi profil fotografini gorebilmeli (403 hatasi duzeltildi)
+    kod, veri = cok_parcali(musteri, "/api/profile/avatar", {"avatar": ("ben.png", png, "image/png")})
+    bekle("avatar yuklendi", kod in (200, 201), veri.get("error"))
+    ben = cagir(musteri, "/api/me")[1].get("user", {})
+    avatar = ben.get("avatar_url", "")
+    bekle("avatar adresi dondu", avatar.startswith("/uploads/"), avatar)
+    if avatar:
+        kod, icerik, tur = cagir(musteri, avatar, ham=True)
+        bekle("kullanici kendi avatarini gorebiliyor", kod == 200 and len(icerik) > 0, f"{kod} · {tur}")
+        yabanci2 = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        kod2, _, _ = cagir(yabanci2, avatar, ham=True)
+        bekle("girissiz istek avatari goremez", kod2 in (401, 403), kod2)
 finally:
     sunucu.terminate()
     try:

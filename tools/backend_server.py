@@ -3344,7 +3344,20 @@ class AppHandler(BaseHTTPRequestHandler):
                 existing = conn.execute("SELECT id FROM orders WHERE user_id=? AND client_order_id=?", (user["id"], client_order_id)).fetchone()
                 if existing:
                     return self.json_response({"order": order_rows(conn, "WHERE o.id=?", (existing["id"],))[0], "duplicate": True})
-            price = float(quote["price"] if order_type == "market" else (payload.get("limit_price") or quote["price"]))
+            base_quote_price = float(quote["price"])
+            client_price = float(payload.get("price") or payload.get("limit_price") or 0)
+            if order_type == "market":
+                # Kullanıcı ekrandaki sapmalı fiyat üzerinden satın alır/satar:
+                if client_price > 0:
+                    max_allowed_diff = max(1.5, base_quote_price * 0.05)
+                    if abs(client_price - base_quote_price) <= max_allowed_diff:
+                        price = round(client_price, 2)
+                    else:
+                        price = round(base_quote_price, 2)
+                else:
+                    price = round(base_quote_price, 2)
+            else:
+                price = float(payload.get("limit_price") or base_quote_price)
             if price <= 0:
                 raise HttpError(400, "Fiyat hatalı")
             if side == "buy" and amount_mode == "cash":
@@ -4786,6 +4799,8 @@ def save_money_receipt(form: MultipartForm | None, user_id: int) -> dict:
 
 def can_view_upload(conn: sqlite3.Connection, user: dict, filename: str) -> bool:
     if user["role"] == "admin":
+        return True
+    if user.get("avatar_url") == f"/uploads/{filename}":
         return True
     document = conn.execute("SELECT id FROM documents WHERE user_id=? AND stored_name=?", (user["id"], filename)).fetchone()
     if document:

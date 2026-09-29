@@ -766,32 +766,37 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
         />
       )}
 
-      {overlay?.kind === "trade" && !pendingOrder && !orderResult && (
-        <QuickTrade
-          asSheet={overlay.sheet}
-          onClose={() => setOverlay(null)}
-          header={null}
-        >
-          <TradePanel
-            stock={overlay.stock}
-            buying={overlay.buying}
-            sheet={overlay.sheet}
-            searchable={overlay.searchable}
-            instruments={market.instruments}
-            cash={available}
-            availableLots={holdingByCode.get(overlay.stock.code)?.quantity || 0}
-            watchlist={watchlist}
-            tradeKind={tradeKind}
-            setTradeKind={setTradeKind}
-            kycApproved={kycApproved}
-            onToggleWatch={() => toggleWatch(overlay.stock.code)}
-            onPickStock={(item) => openTrade(item, { sheet: overlay.sheet, searchable: overlay.searchable, buying: overlay.buying })}
+      {overlay?.kind === "trade" && !pendingOrder && !orderResult && (() => {
+        /* Fiyat 2 saniyede bir sapıyor: panel her çizimde listeden güncel
+           kaydı okur, böylece ekrandaki fiyat canlı kalır. */
+        const tradeStock = market.instruments.find((item) => item.code === (overlay.stock.code || overlay.stock.symbol)) || overlay.stock;
+        return (
+          <QuickTrade
+            asSheet={overlay.sheet}
             onClose={() => setOverlay(null)}
-            onNotice={showNotice}
-            onSubmitted={(order) => setPendingOrder(order)}
-          />
-        </QuickTrade>
-      )}
+            header={null}
+          >
+            <TradePanel
+              stock={tradeStock}
+              buying={overlay.buying}
+              sheet={overlay.sheet}
+              searchable={overlay.searchable}
+              instruments={market.instruments}
+              cash={available}
+              availableLots={holdingByCode.get(tradeStock.code)?.quantity || 0}
+              watchlist={watchlist}
+              tradeKind={tradeKind}
+              setTradeKind={setTradeKind}
+              kycApproved={kycApproved}
+              onToggleWatch={() => toggleWatch(tradeStock.code)}
+              onPickStock={(item) => openTrade(item, { sheet: overlay.sheet, searchable: overlay.searchable, buying: overlay.buying })}
+              onClose={() => setOverlay(null)}
+              onNotice={showNotice}
+              onSubmitted={(order) => setPendingOrder(order)}
+            />
+          </QuickTrade>
+        );
+      })()}
 
       {pendingOrder && (
         <ReviewOrder

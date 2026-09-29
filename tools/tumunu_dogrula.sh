@@ -27,6 +27,7 @@ baslik "3/5  Backend test paketleri"
 
 baslik "3b/5  Arayuz birim testleri"
 node tools/market_hours_test.mjs | tail -1 || hata=1
+node tools/price_drift_test.mjs | tail -1 || hata=1
 
 baslik "4/5  Ornek veri + sunucu"
 rm -rf "$VERI"

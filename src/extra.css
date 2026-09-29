@@ -1202,3 +1202,168 @@ a.ac-ghost{display:inline-flex;align-items:center;text-decoration:none}
   .bg-kutu{width:100vw;max-height:100vh;border-radius:0}
   .bg-govde img{max-height:62vh}
 }
+
+/* ============================================================
+   Giriş / kayıt ekranı — e-şubenin APK görsel dili
+   Bu ekran style.css'in eski "telefon" kabuğunu kullanıyordu ve
+   ottoman'ın kutu düzeniyle kalmıştı. Artık e-şubeyle aynı dil:
+   dört köşe degrade zemin, buzlu kartlar, mavi vurgu.
+   ============================================================ */
+
+/* Zemin: .esube ile birebir aynı dört köşe degrade. */
+.auth-stage,
+.auth-stage .auth-phone,
+.auth-screen.auth-v2 {
+  background:
+    radial-gradient(120% 90% at 0% 0%, var(--bg1) 0%, transparent 58%),
+    radial-gradient(120% 90% at 100% 0%, var(--bg2) 0%, transparent 58%),
+    radial-gradient(120% 90% at 0% 100%, var(--bg3) 0%, transparent 58%),
+    radial-gradient(120% 90% at 100% 100%, var(--bg4) 0%, transparent 58%),
+    var(--bg5);
+  background-attachment: fixed;
+}
+.auth-stage .auth-phone { box-shadow: none; border: 0; }
+
+/* İçerik dar bir sütunda ortalanır; kısa formda alt boşluk kalmaz. */
+.auth-screen.auth-v2 { align-items: stretch; }
+.auth-v2 > *:not(.auth-ticker) { width: min(100%, 460px); margin-inline: auto; }
+.auth-v2 form.auth-form2 { width: min(100%, 460px); margin-inline: auto; }
+
+/* Yazı işareti: e-şubedeki .mk-word ile aynı (Dancing Script değil). */
+.auth-v2 .auth-logo.mk-word {
+  font-family: Roboto, "Segoe UI", system-ui, sans-serif;
+  font-weight: 700; letter-spacing: -.6px; color: var(--ink);
+  font-size: clamp(30px, 7vw, 38px); line-height: 1.1;
+  display: block; text-align: center; margin: 10px 0 18px;
+}
+.auth-v2 .auth-logo.mk-word i { color: var(--plus); font-style: normal; font-weight: 700; }
+
+/* Üstteki canlı şerit de buzlu cama oturur. */
+.auth-v2 .auth-ticker {
+  background: rgba(255, 255, 255, .55);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--edge);
+}
+.auth-ticker-lane b { color: var(--ink); }
+.auth-ticker-lane i.up { color: var(--green); }
+.auth-ticker-lane i.down { color: var(--red); }
+
+/* "Ana sayfa" düğmesi: e-şubedeki hap biçimli yumuşak düğme. */
+.auth-v2 .ghost-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 16px; border-radius: 999px;
+  background: rgba(255, 255, 255, .7); color: var(--accent);
+  font-weight: 700; font-size: 14px; border: 1px solid var(--edge);
+  box-shadow: var(--shadow-card);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+
+/* Sekmeler: hap biçimli, seçili olan beyaz kart. */
+.auth-v2 .auth-tabs {
+  gap: 6px; padding: 5px; border-radius: 999px;
+  background: rgba(255, 255, 255, .5);
+  border: 1px solid var(--edge);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.auth-v2 .auth-tabs button {
+  height: 42px; border-radius: 999px; border: 0;
+  background: transparent; color: var(--muted); font-weight: 700;
+}
+.auth-v2 .auth-tabs button.on {
+  background: #fff; color: var(--accent);
+  box-shadow: var(--shadow-card); border: 0;
+}
+
+/* Bölüm başlıkları. */
+.auth-v2 .auth-form2 h4 { color: var(--muted); letter-spacing: .08em; }
+
+/* Alan kartları: e-şubedeki buzlu kartın aynısı. */
+.auth-v2 .auth-box {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-card);
+}
+.auth-v2 .auth-field { border-color: var(--edge); padding: 12px 15px; }
+.auth-v2 .auth-field:focus-within {
+  background: rgba(59, 108, 255, .07);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.auth-v2 .auth-field > span { color: var(--muted); }
+.auth-v2 .auth-field input, .auth-v2 .auth-field select { color: var(--ink); }
+.auth-v2 .auth-field input::placeholder { color: var(--muted); opacity: .62; }
+
+/* Onay kutusu ve gönder düğmesi. */
+.auth-v2 .checkline { color: var(--muted); }
+.auth-v2 .confirm {
+  height: 52px; border-radius: 16px; font-size: 16px;
+  background: linear-gradient(150deg, var(--accent-2), var(--accent));
+  box-shadow: 0 10px 22px rgba(59, 108, 255, .28);
+}
+.auth-v2 .confirm:focus-visible { box-shadow: 0 0 0 3px rgba(59, 108, 255, .35); }
+
+/* Doğum tarihi: yerel tarih girişi görünmez, takvim simgesini kaplar.
+   Bu kural hiç taşınmamıştı; native alan olduğu gibi görünüyor ve
+   Türkçe sayfada "mm/dd/yyyy" yazıyordu. */
+.auth-dob-pick {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); flex: none; width: 22px; height: 22px;
+}
+.auth-dob-pick input[type="date"] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  width: 100%; height: 100%; border: 0; padding: 0;
+}
+
+/* Şifre gücü göstergesi — markup vardı, kuralı yoktu. */
+.auth-strength { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
+.auth-strength i { flex: 1; height: 4px; border-radius: 999px; background: #e6e7ee; }
+.auth-strength span { font-size: 11.5px; font-weight: 700; margin-left: 4px; flex: none; }
+.auth-strength.zayif i:nth-child(1) { background: var(--red); }
+.auth-strength.zayif span { color: var(--red); }
+.auth-strength.orta i:nth-child(1), .auth-strength.orta i:nth-child(2) { background: #e58928; }
+.auth-strength.orta span { color: #e58928; }
+.auth-strength.guclu i { background: var(--green); }
+.auth-strength.guclu span { color: var(--green); }
+.dark-mode .auth-strength i { background: #2a3040; }
+
+/* Alan altı ipucu (TC hatası vb.) — kuralı yoktu. */
+.ac-hint { display: block; margin-top: 4px; font-size: 12px; }
+.ac-hint.kirmizi { color: #c93343; }
+.dark-mode .ac-hint.kirmizi { color: #ff8f9a; }
+
+/* Sözleşme okuma akışı — tamamı stilsizdi. */
+.checkline.sozlesme-trigger { width: 100%; text-align: left; background: none; border: 0; padding: 0; cursor: pointer; }
+.fake-check {
+  width: 18px; height: 18px; border-radius: 6px; border: 1.5px solid #c7c9d6;
+  display: grid; place-items: center; flex: none; margin-top: 2px; background: #fff;
+}
+.sozlesme-trigger.on .fake-check { background: var(--accent); border-color: var(--accent); }
+.sozlesme-layer { z-index: 30; }
+.sozlesme-modal { display: flex; flex-direction: column; overflow-y: hidden; max-height: calc(100% - 32px); }
+.sozlesme-progress { display: flex; gap: 6px; margin-bottom: 14px; flex: none; }
+.sozlesme-progress span { flex: 1; height: 4px; border-radius: 999px; background: #e6e7ee; }
+.sozlesme-progress span.on { background: var(--accent); }
+.sozlesme-modal h2 { margin: 0 0 12px; font-size: 19px; flex: none; }
+.sozlesme-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  background: #f7f8fc; border: 1px solid var(--edge);
+  border-radius: 14px; padding: 6px 16px 16px; margin-bottom: 10px;
+}
+.sozlesme-body h3 { margin: 10px 0 0; font-size: 14.5px; font-weight: 700; }
+.sozlesme-body p { margin: 0; font-size: 13.5px; line-height: 1.5; color: #42465a; }
+.sozlesme-body .bullet { display: grid; grid-template-columns: 14px 1fr; gap: 4px; margin-left: 6px; font-size: 13.5px; line-height: 1.5; color: #42465a; }
+.sozlesme-hint { color: var(--red); font-size: 12px; margin: 0 0 8px; display: block; flex: none; }
+.sozlesme-modal .confirm { flex: none; }
+.dark-mode .sozlesme-body { background: #171b26; border-color: #2a3040; }
+.dark-mode .sozlesme-body p, .dark-mode .sozlesme-body .bullet { color: #c6cad6; }
+.dark-mode .fake-check { background: #1b1e28; border-color: #3a4152; }
+
+/* Kimlik belgesi yüklendi rozeti — kuralı yoktu. */
+.kyc-uploaded { color: var(--green) !important; font-weight: 600; }
+.dark-mode .kyc-uploaded { color: #6bdba0 !important; }
+
+/* Kısa formda (giriş) içerik dikeyde ortalanır; uzun formda (kayıt) serbest
+   alan kalmadığı için auto kenar boşlukları sıfırlanır ve normal kayar. */
+.auth-v2 .ghost-back { margin-top: auto; }
+.auth-v2 form.auth-form2 { margin-bottom: auto; }

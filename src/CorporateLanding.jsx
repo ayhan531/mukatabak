@@ -411,6 +411,7 @@ export default function CorporateLanding({ openAuth }) {
                 <div className="hero-copy">
                   <span className="corporate-eyebrow"><span className="live-dot" /> CANLI BIST · PORTFÖY · E-ŞUBE</span>
                   <h1>Yatırımın<br />sade hâli</h1>
+                  <span className="corporate-affiliation">(Mukatabak Yatırım Menkul Değerler A.Ş.)</span>
                   <p className="hero-lead">
                     Canlı BIST fiyatlarını izleyin, hisse alıp satın, portföyünüzü ve T+2 bakiyenizi
                     tek ekrandan yönetin. Telefonunuzda da tarayıcıda da aynı deneyim.
@@ -621,6 +622,40 @@ export default function CorporateLanding({ openAuth }) {
               <div className="corporate-center">
                 <button className="text-link" onClick={() => go('SSS')}>Tüm soruları görüntüleyin <ArrowRight size={16} /></button>
               </div>
+            </section>
+
+            {/* ---------- müşteri görüşü (Ottoman'dan taşındı) ---------- */}
+            <section className="corporate-section">
+              {heading('Müşterilerimiz ne diyor?', 'Yatırımcı deneyimi bizim için önemlidir.')}
+              <Reveal className="corporate-feedback">
+                <h3>Deneyiminizi bizimle paylaşın.</h3>
+                <p>
+                  Hesap işlemleri, e-şube ve yatırım hizmetleri hakkındaki görüşleriniz için
+                  iletişim kanallarımızı kullanabilirsiniz.
+                </p>
+                <button className="text-link" onClick={() => go('İletişim')}>
+                  Bize ulaşın <ArrowRight size={17} />
+                </button>
+              </Reveal>
+            </section>
+
+            {/* ---------- keşfedin (Ottoman'dan taşındı) ---------- */}
+            <section className="corporate-section alt">
+              {heading('Mukatabak Yatırım’ı keşfedin', 'Daha fazla bilgi için sayfalarımızı ziyaret edin.')}
+              <Reveal className="corporate-discover">
+                {[
+                  ['Komisyon & Ücretler', 'İşlem koşulları'],
+                  ['Blog', 'Piyasa okuryazarlığı'],
+                  ['SSS', 'Merak edilenler'],
+                  ['İletişim', 'Bize ulaşın'],
+                ].map(([baslik, alt]) => (
+                  <button key={baslik} onClick={() => go(baslik)}>
+                    <strong>{baslik}</strong>
+                    <span>{alt}</span>
+                    <ArrowUpRight size={18} />
+                  </button>
+                ))}
+              </Reveal>
             </section>
 
             {/* ---------- cta ---------- */}

@@ -146,8 +146,8 @@ SEO_SITE_URL = os.environ.get("SITE_URL", "https://mukatabak.onrender.com").rstr
 SEO_PAGES = {
     "/": {
         "label": "Mukatabak Yatırım",
-        "title": "Mukatabak Yatırım | E-Şube ve Canlı Borsa Platformu",
-        "description": "Mukatabak Yatırım E-Şube: canlı BIST fiyatları, hisse al-sat, portföy takibi, yatırım haberleri, para yatırma/çekme, sözleşmeler ve kurumsal dijital yatırım deneyimi.",
+        "title": "Mukatabak Yatırım | Mukatabak, Mukatabak E-Şube ve Canlı Borsa Platformu",
+        "description": "Mukatabak Yatırım ve Mukatabak E-Şube: canlı BIST fiyatları, hisse al-sat, portföy takibi, yatırım haberleri, para yatırma/çekme, sözleşmeler ve kurumsal dijital yatırım deneyimi.",
     },
     "/kurumsal": {
         "label": "Hakkımızda",

@@ -322,7 +322,7 @@ function AuthScreen({ onAuthed, back, initialMode }) {
     <div className="stage auth-stage"><div className="phone auth-phone"><main className="screen scroll auth-screen auth-v2">
       <AuthTicker />
       <button className="ghost-back" onClick={back}>Ana sayfa</button>
-      <div className="auth-logo brand">Mukatabak</div>
+      <div className="auth-logo mk-word">Mukatabak<i>+</i></div>
 
       <div className="auth-tabs">
         <button className={mode === "login" ? "on" : ""} onClick={() => { setMode("login"); setMessage(""); }}>Giriş Yap</button>

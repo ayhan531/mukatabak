@@ -733,3 +733,47 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
+
+/* ---------------------------------------------------------- Ottoman'dan taşınanlar */
+
+/* Başlığın altındaki kurum tam unvanı. */
+.corporate-affiliation {
+  display: block; margin: -6px 0 14px;
+  font-size: 15px; color: var(--muted); font-weight: 600; letter-spacing: -.1px;
+  /* Yazi tipi yuklenirken satir sayisi degisip altindaki her seyi kaydirmasin:
+     satir yuksekligi ve kutu yuksekligi sabit. */
+  line-height: 1.4; min-height: 1.4em; text-wrap: balance;
+}
+@media (max-width: 900px) { .corporate-affiliation { min-height: 2.8em; } }
+
+/* Müşteri görüşü daveti — uydurma yorum yok, iletişime yönlendirir. */
+.corporate-feedback {
+  max-width: 720px; margin: 0 auto; text-align: center;
+  padding: 30px 26px; border-radius: 22px;
+  background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+}
+.corporate-feedback h3 { font-size: 23px; margin: 0 0 10px; letter-spacing: -.4px; }
+.corporate-feedback p { color: var(--muted); margin: 0 0 14px; line-height: 1.6; }
+
+/* Keşfet kartları. */
+.corporate-discover { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.corporate-discover button {
+  position: relative; text-align: left;
+  border: 1px solid var(--line); border-radius: 18px; padding: 22px 46px 22px 22px;
+  background: #fff; box-shadow: var(--shadow-sm);
+  transition: transform .18s, box-shadow .18s, border-color .18s;
+}
+.corporate-discover button:hover {
+  transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--accent-soft);
+}
+.corporate-discover strong { display: block; font-size: 16px; letter-spacing: -.2px; }
+.corporate-discover span { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; }
+.corporate-discover svg { position: absolute; right: 18px; top: 22px; color: var(--accent); }
+
+@media (max-width: 1000px) { .corporate-discover { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) {
+  .corporate-discover { grid-template-columns: 1fr; }
+  .corporate-affiliation { font-size: 14px; }
+  .corporate-feedback { padding: 24px 18px; }
+  .corporate-feedback h3 { font-size: 20px; }
+}

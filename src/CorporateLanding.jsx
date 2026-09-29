@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, Landmark, PieChart, ArrowLeftRight, Users, Check, Menu, X,
   ShieldCheck, Smartphone, Headphones, TrendingUp, Wallet, LineChart, Lock, Clock,
-  FileText, Download, BarChart3, Building2, Mail, Phone, MapPin, Bell, Eye, Zap, Search,
+  FileText, BarChart3, Building2, Mail, Phone, MapPin, Bell, Eye, Zap, Search,
 } from 'lucide-react';
 import './corporate.css';
 
@@ -214,18 +214,23 @@ function LiveTicker({ quotes }) {
   return (
     <div className="corporate-ticker-wrap">
       <div className="corporate-ticker">
-        {rows.map(([label, quote]) => {
+        {/* Liste iki kez basilir; CSS yarisi kadar kaydirinca dikissiz dongu olur.
+           Boylece kenarda yarim kesilmis kart gorunmez. */}
+        <div className="corporate-ticker-lane">
+        {[...rows, ...rows].map(([label, quote], sira) => {
           const up = Number(quote.change_pct || 0) >= 0;
           return (
-            <article key={label}>
+            <article key={label + '-' + sira} aria-hidden={sira >= rows.length}>
               <span>{label}</span>
               <strong>{fmt(quote.price)}</strong>
               <em className={up ? 'up' : 'down'}>
-                {(up ? '▲ +' : '▼ −')}%{fmt(Math.abs(Number(quote.change_pct || 0)))}
+                {/* Ok zaten yonu soyluyor; ayrica +/- koymak cift isaret yapiyordu. */}
+                {up ? '▲' : '▼'} %{fmt(Math.abs(Number(quote.change_pct || 0)))}
               </em>
             </article>
           );
         })}
+        </div>
       </div>
     </div>
   );
@@ -278,7 +283,7 @@ function PhoneMock({ quotes }) {
               const up = Number(row.change_pct || 0) >= 0;
               return (
                 <div className="pm-row" key={row.symbol}>
-                  <span className="pm-dot" />
+                  <span className="pm-dot">{row.symbol.slice(0, 2)}</span>
                   <span className="pm-sym"><b>{row.symbol}</b><s>{row.name}</s></span>
                   <span className="pm-price">
                     <b>{fmt(row.price)}</b>
@@ -535,13 +540,13 @@ export default function CorporateLanding({ openAuth }) {
                 <p>
                   Mukatabak e-şubesi telefonunuzun ana ekranına uygulama gibi eklenir; bildirimler
                   açık olduğunda emir ve transfer gelişmelerini anında görürsünüz. Android için
-                  uygulama dosyasını da indirebilirsiniz.
+                  tarayıcıdan kurulur, ayrı bir uygulama indirmenize gerek kalmaz.
                 </p>
                 <div className="corporate-actions">
                   <button onClick={openAuth}>E-Şube’yi aç <ArrowRight size={17} /></button>
-                  <a className="outline" href="/api/app/download">
-                    <Download size={17} /> Android uygulaması
-                  </a>
+                  <button className="outline" onClick={() => go('Hizmetlerimiz')}>
+                    Hizmetlerimiz <ArrowRight size={17} />
+                  </button>
                 </div>
                 <div className="app-points">
                   {[[Clock, 'Kurulum 10 saniye'], [Wallet, 'Portföy ve bakiye'], [TrendingUp, 'Canlı fiyat'], [Bell, 'Anlık bildirim']].map(([Ikon, title]) => (

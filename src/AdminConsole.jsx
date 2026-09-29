@@ -1,6 +1,6 @@
 // Tam yetkili yönetim konsolu: müşteri, bakiye, pozisyon, banka, emir, para,
 // belge, T+2 ve sistem ayarlarının tamamı buradan değiştirilir.
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./esube/store.js";
 import { gecerliTc, tcHatasi } from "./esube/kimlik.js";
 import Icon from "./esube/icons.jsx";
@@ -664,10 +664,93 @@ function BelgeGoruntuleyici({ belge, onClose }) {
   );
 }
 
-function DocumentsPanel({ documents, ensure, onNotice, refresh }) {
+/* ---------- kullanıcı doğrulama kuyruğu (Ottoman'dan taşındı) ---------- */
+
+const KYC_ROZET_SINIFI = { review: "incele", approved: "onay", rejected: "ret", incomplete: "bekle" };
+const KYC_ROZET_METNI = { review: "İnceleniyor", approved: "Onaylandı", rejected: "Reddedildi", incomplete: "Eksik Belge" };
+
+/** Kullanıcının kimlik durumunu dört kovadan birine düşürür. */
+function kycGrubu(user) {
+  const durum = user.kyc_status || "pending";
+  if (durum === "approved" || durum === "test_account") return "approved";
+  if (durum === "under_review") return "review";
+  if (durum === "rejected") return "rejected";
+  return "incomplete"; // pending, awaiting_back
+}
+
+/** Kişi başına kimlik durumu, sayaçlı filtre ve arama. */
+function KycQueuePanel({ users = [], documents = [], ensure, onNotice, refresh, onAc }) {
+  const [query, setQuery] = useState("");
+  const [durum, setDurum] = useState("hepsi");
+
+  const sayilar = useMemo(() => {
+    const acc = { review: 0, approved: 0, rejected: 0, incomplete: 0 };
+    users.forEach((u) => { const g = kycGrubu(u); acc[g] = (acc[g] || 0) + 1; });
+    return acc;
+  }, [users]);
+
+  const liste = useMemo(() => {
+    const needle = fold(query);
+    return users
+      .filter((u) => durum === "hepsi" || kycGrubu(u) === durum)
+      .filter((u) => eslesir(u, ["full_name", "account_no", "tc"], needle));
+  }, [users, query, durum]);
+
+  const sayac = (key, simge, deger, etiket) => (
+    <button type="button" className={durum === key ? "on" : ""} onClick={() => setDurum(key)} title={etiket}>
+      <Icon name={simge} size={16} />
+      <b>{deger}</b>
+    </button>
+  );
+
+  return (
+    <Section title="Doğrulama Kuyruğu" note="Kişi başına kimlik durumu; bir kovaya tıklayarak süzün">
+      <div className="ac-kyc-sayaclar">
+        {sayac("hepsi", "user", users.length, "Hepsi")}
+        {sayac("review", "clock", sayilar.review, "İnceleniyor")}
+        {sayac("approved", "check", sayilar.approved, "Onaylandı")}
+        {sayac("rejected", "close", sayilar.rejected, "Reddedildi")}
+        {sayac("incomplete", "question", sayilar.incomplete, "Eksik Belge")}
+      </div>
+      <AraSatiri value={query} onChange={setQuery} placeholder="Ad, soyad, hesap no veya TC ile ara…" />
+      <div className="ac-kisiler">
+        {liste.map((user) => {
+          const grup = kycGrubu(user);
+          const adet = documents.filter((d) => d.user_id === user.id).length;
+          return (
+            <article className="ac-kisi ac-kyc-satir" key={user.id}>
+              <header>
+                <span className="av"><Icon name="user" size={17} /></span>
+                <span className="ad">
+                  <strong>{user.full_name}</strong>
+                  <small># {user.account_no}</small>
+                </span>
+                <em className={`ac-durum ${KYC_ROZET_SINIFI[grup]}`}>{KYC_ROZET_METNI[grup]}</em>
+              </header>
+              <ul>
+                <li><Icon name="phone" size={13} /> {user.phone || "—"}</li>
+                <li><Icon name="list" size={13} /> {adet} belge</li>
+              </ul>
+              <footer>
+                <button className="ac-ghost" style={{ flex: 1 }} onClick={() => onAc(user)}>
+                  <Icon name="eye" size={16} /> Belgeleri İncele
+                </button>
+              </footer>
+            </article>
+          );
+        })}
+        {!liste.length && <Bos metin="Kayıt yok" />}
+      </div>
+    </Section>
+  );
+}
+
+function DocumentsPanel({ documents, ensure, onNotice, refresh, kisi, onKisiTemizle }) {
   const [suzgec, setSuzgec] = useState("pending");
   const [arama, setArama] = useState("");
   const [gerekce, setGerekce] = useState("");
+  /* Kuyruktan kişi seçilince o kişinin tüm belgeleri görünsün. */
+  useEffect(() => { if (kisi) setSuzgec("hepsi"); }, [kisi]);
   const [busy, setBusy] = useState(0);
   const [buyuk, setBuyuk] = useState(null);
   const [bozuk, setBozuk] = useState({});
@@ -685,13 +768,15 @@ function DocumentsPanel({ documents, ensure, onNotice, refresh }) {
   const gosterilen = useMemo(() => {
     const kelime = arama.trim().toLocaleLowerCase("tr");
     return documents.filter((d) => {
+      // Doğrulama kuyruğundan bir kişi seçildiyse yalnızca onun belgeleri.
+      if (kisi && d.user_id !== kisi.id) return false;
       const durumTamam = suzgec === "hepsi"
         || (suzgec === "pending" ? d.status !== "approved" && d.status !== "rejected" : d.status === suzgec);
       if (!durumTamam) return false;
       if (!kelime) return true;
       return `${d.full_name || ""} ${d.account_no || ""}`.toLocaleLowerCase("tr").includes(kelime);
     });
-  }, [documents, suzgec, arama]);
+  }, [documents, suzgec, arama, kisi]);
 
   /* Aynı müşterinin belgeleri tek kartta toplanır. */
   const gruplar = useMemo(() => {
@@ -727,7 +812,13 @@ function DocumentsPanel({ documents, ensure, onNotice, refresh }) {
   };
 
   return (
-    <Section title="Kimlik belgeleri" note={`${sayilar.pending} bekleyen · ${documents.length} belge`}>
+    <Section
+      title={kisi ? `Kimlik belgeleri · ${kisi.full_name}` : "Kimlik belgeleri"}
+      note={kisi ? `# ${kisi.account_no} — yalnızca bu müşterinin belgeleri` : `${sayilar.pending} bekleyen · ${documents.length} belge`}
+      action={kisi && (
+        <button className="ac-ghost" onClick={onKisiTemizle}><Icon name="close" size={15} /> Süzgeci kaldır</button>
+      )}
+    >
       <div className="ac-form">
         <Field label="Ret / yeniden isteme gerekçesi (müşteriye gösterilir)" wide>
           <Input value={gerekce} onChange={(e) => setGerekce(e.target.value)} placeholder="Örn: Fotoğraf bulanık, bilgiler okunmuyor" />
@@ -2295,6 +2386,11 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
   const moneyReqs = data?.money_requests || [];
   const settings = data?.system_settings || {};
 
+  /* Doğrulama kuyruğunda seçilen müşteri; belge paneli ona göre süzülür. */
+  const [kycKisi, setKycKisi] = useState(null);
+  const belgeAlani = useRef(null);
+  useEffect(() => { if (sayfa !== "Kullanıcı Doğrulama") setKycKisi(null); }, [sayfa]);
+
   const belgeleriYukle = useCallback(
     () => api("/api/admin/documents").then((veri) => setDocuments(veri.documents || [])).catch(() => setDocuments([])).then(() => refresh()),
     [refresh],
@@ -2386,7 +2482,29 @@ export default function AdminConsole({ data, refresh, logout, onClose }) {
         {sayfa === "Emirler" && <OrdersPanel orders={orders} ensure={lock.ensure} onNotice={onNotice} refresh={refresh} />}
         {sayfa === "Denetim Kaydı" && <AuditPanel />}
         {sayfa === "Kullanıcı Doğrulama" && (
-          <DocumentsPanel documents={documents} ensure={lock.ensure} onNotice={onNotice} refresh={belgeleriYukle} />
+          <>
+            <KycQueuePanel
+              users={users}
+              documents={documents}
+              ensure={lock.ensure}
+              onNotice={onNotice}
+              refresh={belgeleriYukle}
+              onAc={(u) => {
+                setKycKisi(u);
+                belgeAlani.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
+            <div ref={belgeAlani}>
+              <DocumentsPanel
+                documents={documents}
+                ensure={lock.ensure}
+                onNotice={onNotice}
+                refresh={belgeleriYukle}
+                kisi={kycKisi}
+                onKisiTemizle={() => setKycKisi(null)}
+              />
+            </div>
+          </>
         )}
       </main>
 

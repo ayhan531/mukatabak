@@ -5,6 +5,7 @@ import { Symbol, Sheet, Donut } from "./ui.jsx";
 import MiniSpark from "./mini.jsx";
 import { money, percent, signed } from "./market.js";
 import { T, locale } from "./lang.js";
+import { trSirketAdi } from "./trname.js";
 
 const pctText = (value) => (value >= 0 ? "+" : "−") + percent(Math.abs(value || 0));
 const tr2 = (value) => Number(value || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -52,7 +53,7 @@ export function toTrade(row) {
   const profit = buy ? 0 : net - quantity * avgCost;
   return {
     symbol: row.code || "",
-    name: row.name || row.code || "",
+    name: trSirketAdi(row.name || row.code || ""),
     buy, quantity, price, total, fee, net, avgCost, profit,
     profitPercent: avgCost && quantity ? (profit / (quantity * avgCost)) * 100 : 0,
     date: new Date((Number(row.created_at) || 0) * 1000),

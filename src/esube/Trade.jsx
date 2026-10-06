@@ -23,6 +23,8 @@ const dateTime = (value) =>
 export function TradeHeader({ stock, onClose, watched, onToggleWatch, updatedAt }) {
   const up = stock.change >= 0;
   const stamp = dateTime(updatedAt);
+  // Katilim Endeksi rozeti: sadece gercek hisseler icin anlamli. Liste tarihi/kaynak
+  // gibi sistem bilgisi musteriye gosterilmez; admin panelinde (Katilim Endeksi) gorunur.
   return (
     <div className="thead">
       <div className="logo"><Symbol logo={stock.logo} letter={stock.symbol} size={46} /></div>
@@ -34,11 +36,19 @@ export function TradeHeader({ stock, onClose, watched, onToggleWatch, updatedAt 
       </div>
       <button className="icon-btn soft sm trade-close" onClick={onClose} aria-label={T("Kapat")}><Icon name="close" size={18} /></button>
       <div className="nm">{stock.name}</div>
+      {stock.assetClass === "stock" && (
+        <div className={`katilim-rozet ${stock.participationCompliant ? "uygun" : "uygun-degil"}`}>
+          <Icon name={stock.participationCompliant ? "check" : "close"} size={13} />
+          <b>{stock.participationCompliant ? T("Katılım Endeksine Uygun") : T("Katılım Endeksine Uygun Değil")}</b>
+        </div>
+      )}
       <div className="price">{money(stock.price)}</div>
-      <div className="src">
-        <i className="dot" style={{ background: stamp ? "var(--green)" : "var(--ink-orange)" }} />
-        {stamp || T("Veri bekleniyor")}
-      </div>
+      {stamp && (
+        <div className="src">
+          <i className="dot" style={{ background: "var(--green)" }} />
+          {stamp}
+        </div>
+      )}
       <div className="badge-wrap">
         <span className={`move-badge ${up ? "up" : "down"}`}>
           <Icon name={up ? "trend" : "trend-down"} size={13} />

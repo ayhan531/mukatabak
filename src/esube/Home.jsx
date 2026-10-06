@@ -152,6 +152,7 @@ const RowSkeleton = () => (
 
 export default function Home({
   brandBar, instruments, state, watchlist, openTrade, news, newsState, onOpenNews, onAllNews,
+  me, kycApproved, onOpenKyc,
 }) {
   const [query, setQuery] = useState("");
   const stocks = useMemo(() => listFor(BIST, instruments), [instruments]);
@@ -164,6 +165,22 @@ export default function Home({
   return (
     <div className="page">
       {brandBar}
+
+      {/* Kimlik doğrulanmadan hesap kısıtlı; müşteri bunu ana ekranda görsün. */}
+      {kycApproved === false && (
+        <button className="mk-card mk-kyc" onClick={onOpenKyc}>
+          <i className={`tile ${me?.kyc_status === "under_review" ? "t3" : "t8"}`}>
+            <Icon name={me?.kyc_status === "under_review" ? "clock" : "lock"} size={19} />
+          </i>
+          <span>
+            <b>{T(me?.kyc_status === "under_review" ? "Hesabınız incelemede" : "Hesabınız kısıtlı")}</b>
+            <s>{T(me?.kyc_status === "under_review"
+              ? "Kimlik belgeleriniz onay sürecinde. Onaylandığında bilgilendirileceksiniz."
+              : "Kimlik doğrulamayı tamamlamadan alım satım, para yatırma ve çekme yapamazsınız.")}</s>
+          </span>
+          <span className="chev"><Icon name="chevron" size={16} /></span>
+        </button>
+      )}
 
       <MarketStrip instruments={instruments} />
 

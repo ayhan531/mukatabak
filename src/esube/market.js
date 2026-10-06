@@ -1,3 +1,4 @@
+import { trSirketAdi } from "./trname.js";
 // Piyasa sekmeleri, endeks üyelikleri ve APK'daki biçimleyiciler (Models/DemoAccount.cs).
 
 export const MARKET_NAMES = [
@@ -20,14 +21,13 @@ export const MARKET_TAB_ORDER = [BIST, BIST100, BIST50, BIST30, PARTICIPATION, I
 export const NEWS_TAB_ORDER = [BIST, BIST100, BIST50, BIST30, PARTICIPATION, DIVIDEND, IPO, FUNDS, CURRENCY];
 
 /** Alım-satımı backend'de desteklenen sekmeler; diğerlerinde "referansınız ile iletişime geçin" çıkar. */
-export const TRADABLE_MARKETS = new Set([BIST, BIST100, BIST30, DIVIDEND, BIST50]);
+export const TRADABLE_MARKETS = new Set([BIST, BIST100, BIST30, DIVIDEND, BIST50, PARTICIPATION]);
 
 /** Al/Sat ekranı hiç açılmayan piyasalar için gösterilecek yönlendirme metni (bkz. Trade.jsx REFERRAL_TEXT). */
 export const MARKET_CONTACT_TEXT = {
   [IPO]: "Halka arz alış satışları için referansınız ile iletişime geçiniz.",
   [FUNDS]: "Fon alış satışları için referansınız ile iletişime geçiniz.",
   [CURRENCY]: "Döviz alış satışları için referansınız ile iletişime geçiniz.",
-  [PARTICIPATION]: "Katılım hisse alış satışları için referansınız ile iletişime geçiniz.",
 };
 
 const XU030 = ["AKBNK","AKSEN","ALARK","ASELS","ASTOR","BIMAS","BRSAN","EKGYO","ENKAI","EREGL","FROTO","GARAN","GUBRF","HEKTS","ISCTR","KCHOL","KOZAL","KRDMD","MGROS","ODAS","OYAKC","PETKM","PGSUS","SAHOL","SASA","SISE","TCELL","THYAO","TOASO","TUPRS"];
@@ -37,7 +37,6 @@ const XU050 = ["AEFES","AKBNK","AKSEN","ALARK","ASELS","ASTOR","BIMAS","BRSAN","
 
 const XU100_EXTRA = ["AEFES","AGHOL","AHGAZ","AKFGY","AKFYE","AKSA","ALFAS","ALTNY","ANSGR","ARCLK","ARDYZ","AVPGY","BERA","BFREN","BINHO","BOBET","BRYAT","BSOKE","BTCIM","CANTE","CCOLA","CIMSA","CVKMD","CWENE","DOAS","DOHOL","ECILC","EGEEN","ENERY","ENJSA","ESEN","EUPWR","EUREN","FENER","GESAN","GOLTS","GSDHO","GWIND","HTTBT","IPEKE","ISDMR","ISMEN","IZENR","KARSN","KAYSE","KCAER","KONTR","KONYA","KORDS","KOZAA","KTLEV","MAVI","MIATK","MPARK","OBAMS","OTKAR","PAPIL","PENTA","PSGYO","REEDR","SDTTR","SKBNK","SMRTG","SOKM","TAVHL","TKFEN","TMSN","TSKB","TTKOM","TTRAK","TUKAS","TURSG","ULKER","VAKBN","VESBE","VESTL","YEOTK","YKBNK","YYLGD","ZOREN"];
 
-const XKTUM = ["ASELS","ASTOR","AKSEN","ALARK","BIMAS","BRSAN","CIMSA","EGEEN","EKGYO","ENJSA","ENKAI","EREGL","EUPWR","FROTO","GESAN","GUBRF","HEKTS","ISDMR","KARSN","KCAER","KCHOL","KONTR","KONYA","KORDS","KOZAA","KOZAL","KRDMD","MGROS","MIATK","OTKAR","OYAKC","PETKM","PGSUS","SASA","SISE","SMRTG","SOKM","TAVHL","TCELL","THYAO","TKFEN","TMSN","TOASO","TTKOM","TTRAK","TUKAS","TUPRS","ULKER","VESBE","VESTL","YEOTK","ZOREN","AHGAZ","AKFYE","ALFAS","BOBET","BTCIM","CANTE","CWENE","ESEN","EUREN","GOLTS","GWIND","IZENR","KAYSE","PAPIL","REEDR","SDTTR","TUREX","ALTNY","BINHO","OBAMS"];
 
 const XTMTU = ["AEFES","AKBNK","AKSA","ANSGR","ARCLK","ASELS","AYGAZ","BIMAS","BRISA","CCOLA","CIMSA","DOAS","ECILC","EGEEN","EKGYO","ENJSA","ENKAI","EREGL","FROTO","GARAN","GUBRF","ISCTR","ISDMR","KCHOL","KONYA","KORDS","MGROS","OTKAR","OYAKC","PETKM","PGSUS","SAHOL","SISE","SOKM","TAVHL","TCELL","TKFEN","TOASO","TRGYO","TSKB","TTKOM","TTRAK","TUPRS","TURSG","ULKER","VAKBN","VESBE","YKBNK","AGHOL","ALARK","BAGFS","BANVT","BUCIM","CEMTS","DEVA","GOLTS","HEKTS","INDES","ISMEN","KLMSN","LOGO","MPARK","NUHCM","PRKME","SARKY","SELEC","TATGD","TUKAS","VESTL","YATAS","ZOREN"];
 
@@ -47,7 +46,6 @@ const setOf = (list) => new Set(list);
 const S_XU030 = setOf(XU030);
 const S_XU050 = setOf(XU050);
 const S_XU100 = setOf([...XU030, ...XU100_EXTRA]);
-const S_XKTUM = setOf(XKTUM);
 const S_XTMTU = setOf(XTMTU);
 const S_XHARZ = setOf(XHARZ);
 
@@ -253,8 +251,8 @@ export const toInstrument = (quote) => {
   return {
     symbol: isFx ? symbol.replace(/TRY$/, "/TRY") : symbol,
     code: symbol,
-    name: isFx ? CURRENCY_NAMES[symbol] || quote.name || symbol : shortName(symbol, quote.name),
-    fullName: String(quote.name || symbol).trim(),
+    name: isFx ? CURRENCY_NAMES[symbol] || quote.name || symbol : shortName(symbol, trSirketAdi(quote.name || symbol)),
+    fullName: trSirketAdi(quote.name || symbol),
     price,
     change: changePct,
     dayDelta: price - previous,
@@ -265,6 +263,17 @@ export const toInstrument = (quote) => {
     assetClass: quote.asset_class || "stock",
     currency: isFx ? "TRY" : quote.asset_class === "index" ? "" : "TRY",
     kind: quote.asset_class === "fund" ? "fund" : quote.asset_class === "fx" ? "currency" : "stock",
+    // Katılım Endeksi uygunluğu: backend'deki participation_index tablosundan gelir
+    // (Borsa İstanbul dosyasından otomatik güncellenir). Statik listeye gömülmedi ki
+    // KAP duyurusu geldiğinde deploy beklemeden güncellensin.
+    participationCompliant: Boolean(quote.participation_compliant),
+    // Backend saniye (unix) verir, JS milisaniye bekler; çevrilmezse tarih 1970 görünür.
+    participationUpdatedAt: (() => {
+      const t = Number(quote.participation_updated_at);
+      if (!Number.isFinite(t) || t <= 0) return null;
+      return t < 1e11 ? t * 1000 : t;
+    })(),
+    participationNote: quote.participation_note || "",
   };
 };
 
@@ -374,7 +383,7 @@ export function listFor(market, instruments) {
     case BIST50:
       return stocks.filter((item) => S_XU050.has(item.code));
     case PARTICIPATION:
-      return stocks.filter((item) => S_XKTUM.has(item.code)).map((item) => ({ ...item, kind: "participation" }));
+      return stocks.filter((item) => item.participationCompliant).map((item) => ({ ...item, kind: "stock" }));
     case DIVIDEND:
       return stocks.filter((item) => S_XTMTU.has(item.code));
     case IPO:

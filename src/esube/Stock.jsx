@@ -151,6 +151,14 @@ export default function Stock({ code, instrument, holding, watched, onToggleWatc
         <div className="mk-card-head" style={{ marginBottom: 12 }}>
           <h2>{T("Özet")}</h2>
         </div>
+        {/* Katılım Endeksi uygunluğu — liste backend'de Borsa İstanbul dosyasından
+            güncellenir, burada sadece gösterilir. */}
+        {instrument?.assetClass === "stock" && (
+          <div className={`katilim-rozet ${instrument.participationCompliant ? "uygun" : "uygun-degil"}`} style={{ marginBottom: 12 }}>
+            <Icon name={instrument.participationCompliant ? "check" : "close"} size={13} />
+            <b>{instrument.participationCompliant ? T("Katılım Endeksine Uygun") : T("Katılım Endeksine Uygun Değil")}</b>
+          </div>
+        )}
         <div className="sd-stats">
           <Stat label={T("Sektör")} value={data?.profile?.sector || "—"} />
           <Stat label={T("Faaliyet")} value={data?.profile?.industry || "—"} />

@@ -38,6 +38,7 @@ except Exception:
 from news_feed import latest_news
 from market_news import sekme_haberleri as fotolu_sekme_haberleri, sirketleri_tanit
 import threading
+import katilim_feed
 
 def generate_account_no(conn: "sqlite3.Connection") -> str:
     """Rastgele 5 haneli, benzersiz müşteri numarası: MK + 5 rakam."""
@@ -712,6 +713,13 @@ def init_db() -> None:
               updated_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS participation_index (
+              symbol TEXT PRIMARY KEY,
+              compliant INTEGER NOT NULL DEFAULT 0,
+              note TEXT NOT NULL DEFAULT '',
+              updated_at INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE TABLE IF NOT EXISTS market_status (
               id INTEGER PRIMARY KEY CHECK (id=1),
               source TEXT NOT NULL DEFAULT 'fallback',
@@ -759,6 +767,7 @@ def init_db() -> None:
         seed_market(conn)
         seed_system_bank_accounts(conn)
         seed_system_settings(conn)
+        seed_participation_index(conn)
 
 
 def migrate_db(conn: sqlite3.Connection) -> None:
@@ -822,6 +831,7 @@ def migrate_db(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE system_bank_accounts SET is_active=0 WHERE REPLACE(iban, ' ', '') LIKE 'TR00%'")
     conn.execute("UPDATE orders SET gross_total=total WHERE gross_total<=0")
     conn.execute("UPDATE sessions SET last_seen_at=created_at WHERE last_seen_at<=0")
+    conn.execute("INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES ('t2_enabled', '1', ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value='1', updated_at=excluded.updated_at", (now(),))
     create_compatibility_views(conn)
 
 
@@ -940,7 +950,7 @@ def seed_system_settings(conn: sqlite3.Connection) -> None:
         "market_feed_enabled": "1",
         "maintenance_mode": "0",
         "price_simulation": "0",
-        "t2_enabled": "0",
+        "t2_enabled": "1",
         "commission_rate_bps": os.environ.get("COMMISSION_RATE_BPS", "0"),
         "minimum_commission": os.environ.get("MINIMUM_COMMISSION", "0"),
         "official_company_name": os.environ.get("OFFICIAL_COMPANY_NAME", ""),
@@ -1143,6 +1153,139 @@ def seed_market(conn: sqlite3.Connection) -> None:
     )
 
 
+# Katilim Endeksi (BIST Katilim / sharia uygunluk taramasi) uyeligi: bu, resmi
+# endeks saglayicisinin donemsel yeniden dengelemeleri ve sirket bazli KAP
+# duyurulariyla degisebilen, ucretsiz/genel bir API'den canli cekilemeyen bir
+# veridir. Bu yuzden statik/derlenmis bir listeye gommek yerine admin panelinden
+# yonetilen, "son guncelleme" tarihi tasiyan ayri bir tabloda tutulur - ekip KAP
+# duyurusunu gordugu an deploy beklemeden guncelleyebilsin diye.
+# Katilim Endeksi (BIST Katilim Tum) uyeligi: Borsa Istanbul'un RESMI
+# hisse-endeks dagilimi dosyasindan (hisse_endeks_ds.csv, endeks kodu XKTUM)
+# otomatik cekilir ve katilim endeksi tablosuna uygulanir (bkz. katilim_feed.py).
+# Dosya erisilemez/bozuk ise eski liste korunur ve admin panelinde uyari cikar;
+# admin ayni dosyayi panelden elle de yukleyebilir. Admin'in notla elle
+# isaretledigi hisselere otomatik esitleme dokunmaz.
+PARTICIPATION_FEED_URL = os.environ.get("PARTICIPATION_FEED_URL", "https://www.borsaistanbul.com/datum/hisse_endeks_ds.csv")
+PARTICIPATION_SYNC_SECONDS = int(os.environ.get("PARTICIPATION_SYNC_SECONDS", "21600"))   # 6 saatte bir
+PARTICIPATION_STALE_SECONDS = 4 * 86400                                                     # 4 gunden eski basari = uyari
+# Gomulu yedek: resmi dosyadan 06.10.2026 tarihli (ilk kurulumda, ag yokken kullanilir).
+PARTICIPATION_BUILTIN_TS = 1791244800
+PARTICIPATION_SEED_SYMBOLS = (
+    "ACSEL", "AHGAZ", "AKCNS", "AKFIS", "AKFYE", "AKHAN", "AKYHO", "ALBRK", "ALBTN", "ALCTL",
+    "ALKA", "ALKIM", "ALTNY", "ANGEN", "ARASE", "ARDYZ", "ARENA", "ASELS", "ATAKP", "ATATP",
+    "AVPGY", "AYDEM", "BAHKM", "BAKAB", "BANVT", "BASGZ", "BAYRK", "BEGYO", "BERA", "BETAE",
+    "BIENY", "BIMAS", "BINBN", "BINHO", "BKRGY", "BLUME", "BMSTL", "BORSK", "BOSSA", "BRISA",
+    "BRKSN", "BRLSM", "BUCIM", "BURCE", "BURVA", "BYDNR", "CATES", "CELHA", "CEMTS", "CIMSA",
+    "CITAS", "CMBTN", "COSMO", "CVKMD", "CWENE", "DAPGM", "DARDL", "DCTTR", "DESPC", "DGATE",
+    "DITAS", "DMSAS", "DNISI", "DOFER", "DOFRB", "DYOBY", "EBEBK", "EDATA", "EDIP", "EFOR",
+    "EGEGY", "EGEPO", "EGGUB", "EGPRO", "EKGYO", "EKOS", "EKSUN", "ELITE", "EMPAE", "ENERY",
+    "ENJSA", "EREGL", "ESCOM", "ESEN", "EUPWR", "EYGYO", "FADE", "FONET", "FORMT", "FORTE",
+    "FRIGO", "FRMPL", "FZLGY", "GEDZA", "GENIL", "GEREL", "GESAN", "GLRMK", "GMTAS", "GOKNR",
+    "GOLDA", "GOLTS", "GOODY", "GRSEL", "GUBRF", "HATSN", "HKTM", "HOROZ", "HRKET", "IHEVA",
+    "IHLAS", "IHLGM", "IHYAY", "IMASM", "INGRM", "INTEM", "INTET", "ISDMR", "ISSEN", "IZFAS",
+    "IZINV", "JANTS", "KARSN", "KATMR", "KBORU", "KCAER", "KFEIN", "KGYO", "KIMMR", "KLSER",
+    "KMPUR", "KNFRT", "KOCMT", "KONKA", "KONYA", "KOTON", "KPEKS", "KRDMA", "KRDMB", "KRDMD",
+    "KRGYO", "KRONT", "KRPLS", "KRSTL", "KRVGD", "KTLEV", "KUTPO", "KZBGY", "LINK", "LKMNH",
+    "LMKDC", "LOGO", "LXGYO", "MAGEN", "MAKIM", "MARBL", "MAVI", "MCARD", "MEDTR", "MEGMT",
+    "MEKAG", "MERCN", "MEYSU", "MNDTR", "MOGAN", "MOPAS", "MPARK", "NATEN", "NETAS", "NETCD",
+    "NETGL", "NTGAZ", "OBAMS", "OBASE", "ONCSM", "ORGE", "OSTIM", "OZRDN", "OZYSR", "PAGYO",
+    "PARSN", "PASEU", "PENGD", "PENTA", "PETKM", "PKART", "PLTUR", "PNLSN", "PNSUT", "POLHO",
+    "QUAGR", "REEDR", "RODRG", "RUBNS", "SAFKR", "SAMAT", "SANKO", "SARKY", "SAYAS", "SDTTR",
+    "SEGMN", "SEKUR", "SELEC", "SELVA", "SILVR", "SMART", "SMRTG", "SNGYO", "SNICA", "SOHOE",
+    "SOKE", "SRVGY", "SSAAT", "SURGY", "SUWEN", "TARKM", "TCKRC", "TEZOL", "TGSAS", "TKFEN",
+    "TKNKA", "TKNSA", "TMPOL", "TUCLK", "TUPRS", "TUREX", "TURGG", "UCAYM", "ULUSE", "VAKKO",
+    "VANGD", "VBTYZ", "YATAS", "YEOTK", "YIGIT", "YKSLN", "YUNSA", "ZEDUR",
+)
+
+
+def set_system_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO system_settings (setting_key, setting_value, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, updated_at=excluded.updated_at",
+        (key, value, now()),
+    )
+
+
+def participation_sync_status(conn: sqlite3.Connection) -> dict:
+    row = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='participation_sync'").fetchone()
+    try:
+        status = json.loads(row["setting_value"]) if row else {}
+    except (TypeError, ValueError):
+        status = {}
+    last_ok = int(status.get("last_ok_at") or 0)
+    status["stale"] = (not last_ok) or (now() - last_ok > PARTICIPATION_STALE_SECONDS)
+    status["last_ok_label"] = iso_time(last_ok) if last_ok else ""
+    status["last_attempt_label"] = iso_time(int(status["last_attempt_at"])) if status.get("last_attempt_at") else ""
+    status["list_date_label"] = time.strftime("%d.%m.%Y", time.gmtime(int(status["list_ts"]))) if status.get("list_ts") else ""
+    return status
+
+
+def _save_participation_status(conn: sqlite3.Connection, ok: bool, source: str, result: dict | None, error: str, list_ts: int | None, trusted: bool = True) -> None:
+    row = conn.execute("SELECT setting_value FROM system_settings WHERE setting_key='participation_sync'").fetchone()
+    try:
+        old = json.loads(row["setting_value"]) if row else {}
+    except (TypeError, ValueError):
+        old = {}
+    status = {
+        "last_attempt_at": now(),
+        "last_ok_at": (now() if trusted else 0) if ok else old.get("last_ok_at", 0),
+        "ok": ok, "source": source if ok else old.get("source", source),
+        "error": "" if ok else error[:300],
+        "list_ts": list_ts if ok else old.get("list_ts"),
+        "total": result["total"] if ok and result else old.get("total"),
+        "added": result["added"][:60] if ok and result else old.get("added", []),
+        "removed": result["removed"][:60] if ok and result else old.get("removed", []),
+    }
+    set_system_setting(conn, "participation_sync", json.dumps(status, ensure_ascii=False))
+
+
+def sync_participation_index(text: str | None = None, source: str = "otomatik") -> dict:
+    """Resmi dosyayi indirir (ya da verilen metni kullanir), dogrular, uygular.
+    Her durumda durum kaydi tutar; hata halinde mevcut liste degismez."""
+    try:
+        if text is None:
+            request = urllib.request.Request(PARTICIPATION_FEED_URL, headers={"User-Agent": "Mozilla/5.0 (compatible; MukatabakYatirim/1.0)"})
+            with urllib.request.urlopen(request, timeout=40) as response:
+                raw = response.read(8_000_000)
+            text = raw.decode("utf-8", errors="replace")
+        symbols, list_ts = katilim_feed.parse_csv(text)
+        with connect_db() as conn:
+            result = katilim_feed.apply_list(conn, symbols, list_ts)
+            _save_participation_status(conn, True, source, result, "", list_ts)
+            conn.commit()
+        return {"ok": True, **result, "list_ts": list_ts}
+    except Exception as error:                      # ag, bicim ya da supheli-liste hatasi: liste korunur
+        message = f"{type(error).__name__}: {error}"
+        try:
+            with connect_db() as conn:
+                _save_participation_status(conn, False, source, None, message, None)
+                conn.commit()
+        except Exception:
+            pass
+        return {"ok": False, "error": message}
+
+
+def seed_participation_index(conn: sqlite3.Connection) -> None:
+    """Ilk kurulumda (hic esitleme kaydi yokken) gomulu resmi listeyi yukler;
+    sonrasinda liste sadece canli esitleme / admin ile degisir. Gomulu liste
+    'canli dogrulanmis' sayilmaz (last_ok_at=0): canli esitleme basarana kadar
+    admin panelinde uyari gorunur."""
+    if conn.execute("SELECT 1 FROM system_settings WHERE setting_key='participation_sync'").fetchone():
+        return
+    result = katilim_feed.apply_list(conn, set(PARTICIPATION_SEED_SYMBOLS), PARTICIPATION_BUILTIN_TS)
+    _save_participation_status(conn, True, "gomulu liste (06.10.2026)", result, "", PARTICIPATION_BUILTIN_TS, trusted=False)
+
+
+def katilimi_esitle() -> None:
+    """Arka planda 6 saatte bir resmi listeyi kontrol eder."""
+    def calis():
+        time.sleep(15)
+        while True:
+            sync_participation_index()
+            time.sleep(max(600, PARTICIPATION_SYNC_SECONDS))
+    threading.Thread(target=calis, name="katilim-esitleyici", daemon=True).start()
+
+
 def audit(
     conn: sqlite3.Connection,
     actor_id: int | None,
@@ -1220,16 +1363,20 @@ def market_feed_enabled(conn: sqlite3.Connection) -> bool:
 def market_from_cache(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT *
-        FROM market_cache
+        SELECT m.*,
+          COALESCE(p.compliant, 0) AS participation_compliant,
+          p.updated_at AS participation_updated_at,
+          COALESCE(p.note, '') AS participation_note
+        FROM market_cache m
+        LEFT JOIN participation_index p ON p.symbol = m.symbol
         ORDER BY
-          CASE symbol
+          CASE m.symbol
             WHEN 'XU100' THEN 0 WHEN 'XU030' THEN 1 WHEN 'XBANK' THEN 2
             WHEN 'USDTRY' THEN 3 WHEN 'EURTRY' THEN 4 WHEN 'GBPTRY' THEN 5
             WHEN 'XAUTRY' THEN 6 WHEN 'XAGTRY' THEN 7 WHEN 'BRENT' THEN 8 WHEN 'BTCUSD' THEN 9
             ELSE 20
           END,
-          symbol ASC
+          m.symbol ASC
         LIMIT 1000
         """
     ).fetchall()
@@ -2369,6 +2516,14 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.api_admin_stock_names()
         if method == "POST" and path == "/api/admin/stock-names":
             return self.api_admin_save_stock_name()
+        if method == "GET" and path == "/api/admin/participation":
+            return self.api_admin_participation_list()
+        if method == "POST" and path == "/api/admin/participation":
+            return self.api_admin_save_participation()
+        if method == "POST" and path == "/api/admin/participation/sync":
+            return self.api_admin_participation_sync()
+        if method == "POST" and path == "/api/admin/participation/import":
+            return self.api_admin_participation_import()
         if method == "GET" and path == "/api/admin/audit":
             return self.api_admin_audit()
         if method == "POST" and path == "/api/admin/create-user":
@@ -2387,8 +2542,14 @@ class AppHandler(BaseHTTPRequestHandler):
             return self.api_admin_reset_account()
         if method == "POST" and path == "/api/my/reset":
             return self.api_my_reset_account()
+        if method == "GET":
+            parts = path.strip("/").split("/")
+            if len(parts) == 5 and parts[:3] == ["api", "admin", "users"] and parts[3].isdigit() and parts[4] == "sessions":
+                return self.api_admin_user_sessions(int(parts[3]))
         if method == "POST":
             parts = path.strip("/").split("/")
+            if len(parts) == 6 and parts[:3] == ["api", "admin", "users"] and parts[3].isdigit() and parts[4:] == ["sessions", "revoke"]:
+                return self.api_admin_revoke_user_session(int(parts[3]))
             if len(parts) == 4 and parts[:2] == ["api", "orders"] and parts[3] == "cancel":
                 return self.api_cancel_order(int(parts[2]))
             if len(parts) == 4 and parts[:2] == ["api", "orders"] and parts[3] == "edit":
@@ -3949,6 +4110,89 @@ class AppHandler(BaseHTTPRequestHandler):
             conn.commit()
             self.json_response({"ok": True, "symbol": symbol, "name": name})
 
+    # ---------------- katilim endeksi uygunlugu ----------------
+
+    def api_admin_participation_list(self) -> None:
+        """Katilim Endeksi (sharia uygunluk) listesi: sadece admin panelinden
+        elle guncellenir - BIST'in resmi, ucretsiz/canli cekilebilen bir API'si
+        olmadigi icin bu veri ekibin KAP duyurularini takip ederek girdigi,
+        'son guncelleme' tarihi tasiyan bir kayittir, otomatik/tahmini degil."""
+        with connect_db() as conn:
+            self.require_admin(conn)
+            query = parse_qs(urlparse(self.path).query)
+            arama = (query.get("q") or [""])[0].strip().upper()
+            kosul, parametreler = "", []
+            if arama:
+                kosul = " AND (m.symbol LIKE ? OR UPPER(m.name) LIKE ?)"
+                parametreler = [f"%{arama}%", f"%{arama}%"]
+            rows = conn.execute(
+                "SELECT m.symbol, m.name, m.asset_class,"
+                " COALESCE(p.compliant, 0) AS compliant, p.note AS note, p.updated_at AS updated_at"
+                " FROM market_cache m LEFT JOIN participation_index p ON p.symbol = m.symbol"
+                " WHERE m.asset_class='stock'" + kosul +
+                " ORDER BY compliant DESC, m.symbol ASC",
+                parametreler,
+            ).fetchall()
+            toplam = conn.execute("SELECT COUNT(*) c FROM participation_index WHERE compliant=1").fetchone()["c"]
+            self.json_response({
+                "compliant_total": toplam,
+                "sync": participation_sync_status(conn),
+                "items": [{
+                    "symbol": row["symbol"],
+                    "name": row["name"] or row["symbol"],
+                    "compliant": bool(row["compliant"]),
+                    "note": row["note"] or "",
+                    "updated_at": iso_time(row["updated_at"]) if row["updated_at"] else "",
+                } for row in rows],
+            })
+
+    def api_admin_save_participation(self) -> None:
+        payload = self.read_json()
+        symbol = re.sub(r"[^A-Z0-9]", "", str(payload.get("symbol", "")).upper())
+        compliant = 1 if payload.get("compliant") else 0
+        note = str(payload.get("note", "")).strip()[:300]
+        if not symbol:
+            raise HttpError(400, "Hisse kodu gerekli")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            if not conn.execute("SELECT 1 FROM market_cache WHERE symbol=?", (symbol,)).fetchone():
+                raise HttpError(404, "Bu kodla bir enstrüman yok")
+            conn.execute(
+                "INSERT INTO participation_index (symbol, compliant, note, updated_at) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(symbol) DO UPDATE SET compliant=excluded.compliant, note=excluded.note, updated_at=excluded.updated_at",
+                (symbol, compliant, note, now()),
+            )
+            audit(conn, admin["id"], "save_participation", "instrument", None, {"symbol": symbol, "compliant": compliant})
+            conn.commit()
+            self.json_response({"ok": True, "symbol": symbol, "compliant": bool(compliant)})
+
+    def api_admin_participation_sync(self) -> None:
+        """Admin: resmi listeyi simdi kontrol et."""
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+        sonuc = sync_participation_index(source="admin (elle tetiklendi)")
+        with connect_db() as conn:
+            audit(conn, admin["id"], "participation_sync", "instrument", None, {"ok": sonuc.get("ok")})
+            conn.commit()
+            self.json_response({**sonuc, "sync": participation_sync_status(conn)})
+
+    def api_admin_participation_import(self) -> None:
+        """Admin: resmi hisse_endeks_ds.csv dosyasini elle yukle (sunucu
+        Borsa Istanbul'a erisemezse yedek yol)."""
+        payload = self.read_json()
+        text = str(payload.get("text", ""))
+        if len(text) < 1000:
+            raise HttpError(400, "Dosya icerigi bos ya da cok kisa")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+        sonuc = sync_participation_index(text=text[:8_000_000], source="admin (dosya yuklendi)")
+        with connect_db() as conn:
+            audit(conn, admin["id"], "participation_import", "instrument", None, {"ok": sonuc.get("ok")})
+            conn.commit()
+            if not sonuc.get("ok"):
+                raise HttpError(422, sonuc.get("error", "Dosya uygulanamadi"))
+            self.json_response({**sonuc, "sync": participation_sync_status(conn)})
+
     # ---------------- piyasa kontrolü ----------------
 
     def api_admin_prices(self) -> None:
@@ -4112,9 +4356,53 @@ class AppHandler(BaseHTTPRequestHandler):
             if not conn.execute("SELECT 1 FROM users WHERE id=? AND role='user'", (user_id,)).fetchone():
                 raise HttpError(404, "Kullanıcı bulunamadı")
             salt, digest = hash_password(password)
-            conn.execute("UPDATE users SET password_salt=?, password_hash=? WHERE id=?", (salt, digest, user_id))
+            # failed_login_count/locked_until temizlenmezse, admin sifreyi
+            # dogru sekilde sifirlasa bile kullanici onceki hatali denemelerden
+            # kalma kilitle karsilasmaya devam eder ("sifre yenilendi ama
+            # hala giremiyorum" sikayetinin kaynagi).
+            conn.execute(
+                "UPDATE users SET password_salt=?, password_hash=?, failed_login_count=0, locked_until=0 WHERE id=?",
+                (salt, digest, user_id),
+            )
             conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))   # açık oturumlar kapansın
             audit(conn, admin["id"], "reset_password", "user", user_id)
+            conn.commit()
+            self.json_response({"ok": True})
+
+    def api_admin_user_sessions(self, user_id: int) -> None:
+        """Musteri tarafindaki 'Guvenilir Cihazlar/Aktif Oturumlar' ekrani
+        kafa karistirdigi icin kaldirildi (bkz. istek); ayni bilgi artik
+        sadece admin panelinden, musteri destegi/supheli giris incelemesi
+        icin gorulebiliyor."""
+        with connect_db() as conn:
+            self.require_admin(conn)
+            if not conn.execute("SELECT 1 FROM users WHERE id=? AND role='user'", (user_id,)).fetchone():
+                raise HttpError(404, "Kullanıcı bulunamadı")
+            rows = conn.execute(
+                "SELECT sid, created_at, last_seen_at, ip_address, user_agent FROM sessions WHERE user_id=? AND expires_at>? ORDER BY last_seen_at DESC",
+                (user_id, now()),
+            ).fetchall()
+            self.json_response({
+                "sessions": [{
+                    "id": row["sid"],
+                    "created_at": iso_time(row["created_at"]),
+                    "last_seen_at": iso_time(row["last_seen_at"]),
+                    "ip_address": row["ip_address"],
+                    "device": (row["user_agent"] or "")[:120] or "Bilinmeyen cihaz",
+                } for row in rows],
+            })
+
+    def api_admin_revoke_user_session(self, user_id: int) -> None:
+        payload = self.read_json()
+        session_id = str(payload.get("session_id", ""))
+        if not session_id:
+            raise HttpError(400, "Oturum kimliği gerekli")
+        with connect_db() as conn:
+            admin = self.require_admin(conn)
+            if not conn.execute("SELECT 1 FROM users WHERE id=? AND role='user'", (user_id,)).fetchone():
+                raise HttpError(404, "Kullanıcı bulunamadı")
+            conn.execute("DELETE FROM sessions WHERE sid=? AND user_id=?", (session_id, user_id))
+            audit(conn, admin["id"], "revoke_session", "user", user_id)
             conn.commit()
             self.json_response({"ok": True})
 
@@ -4364,17 +4652,23 @@ class AppHandler(BaseHTTPRequestHandler):
             tc = tc_raw or target["tc"]
             if tc != target["tc"] and conn.execute("SELECT id FROM users WHERE tc=? AND id!=?", (tc, user_id)).fetchone():
                 raise HttpError(409, "Bu T.C. kimlik numarası başka bir kullanıcıda kayıtlı")
+            # T.C. duzeltildiyse (yanlis girilmis/kayitta bozulmus bir numara
+            # admin tarafindan onarildiysa) onceki hatali giris denemelerinden
+            # kalma kilit de temizlenir - yoksa dogru bilgiyle bile giremez.
+            tc_degisti = tc != target["tc"]
             conn.execute(
                 """
                 UPDATE users
                 SET full_name=?, phone=?, email=?, city=?, district=?, birth_date=?, address=?, tc=?,
                     status=?, kyc_status=?, kyc_note=?, is_test_user=?,
-                    approved_at=CASE WHEN ?='approved' THEN COALESCE(approved_at, ?) ELSE approved_at END
+                    approved_at=CASE WHEN ?='approved' THEN COALESCE(approved_at, ?) ELSE approved_at END,
+                    failed_login_count=CASE WHEN ? THEN 0 ELSE failed_login_count END,
+                    locked_until=CASE WHEN ? THEN 0 ELSE locked_until END
                 WHERE id=? AND role='user'
                 """,
-                (full_name, phone, email, city, district, birth_date, address, tc, status, status, kyc_note, is_test_user, status, now(), user_id),
+                (full_name, phone, email, city, district, birth_date, address, tc, status, status, kyc_note, is_test_user, status, now(), tc_degisti, tc_degisti, user_id),
             )
-            audit(conn, admin["id"], "update_user", "user", user_id, {"is_test_user": is_test_user})
+            audit(conn, admin["id"], "update_user", "user", user_id, {"is_test_user": is_test_user, "tc_changed": tc_degisti})
             conn.commit()
             self.json_response({"ok": True})
 
@@ -4515,7 +4809,11 @@ class AppHandler(BaseHTTPRequestHandler):
             self.json_response({"ok": True})
 
     def api_admin_action(self, entity: str, entity_id: int, action: str) -> None:
-        if action not in {"approve", "reject"}:
+        if entity == "users":
+            allowed = {"approve", "reject", "make_admin", "unlock"}
+        else:
+            allowed = {"approve", "reject"}
+        if action not in allowed:
             raise HttpError(404, "İşlem bulunamadı")
         payload = self.read_json()
         reason = str(payload.get("reason", "")).strip()[:300]
@@ -4536,6 +4834,25 @@ class AppHandler(BaseHTTPRequestHandler):
         user = conn.execute("SELECT * FROM users WHERE id=? AND role='user'", (user_id,)).fetchone()
         if not user:
             raise HttpError(404, "Kullanıcı bulunamadı")
+        if action == "unlock":
+            # 5 hatali giris denemesinden sonra hesap 15 dk kilitleniyor
+            # (bkz. api_login) - admin burada bu bekleyisi atlayabilir.
+            conn.execute("UPDATE users SET failed_login_count=0, locked_until=0 WHERE id=?", (user_id,))
+            audit(conn, admin["id"], "unlock_user", "user", user_id)
+            return
+        if action == "make_admin":
+            # Admin yetkisi tek hesapla sinirli degil - panelden istenen her
+            # hesaba admin rolu verilebilir. role kolonunda essizlik kisiti
+            # yok, bu yuzden ayni anda birden fazla admin desteklenir.
+            conn.execute("UPDATE users SET role='admin' WHERE id=?", (user_id,))
+            create_notification(
+                conn, user_id,
+                "Admin yetkisi verildi",
+                "Hesabınıza yönetici (admin) yetkisi tanımlandı.",
+                category="hesap",
+            )
+            audit(conn, admin["id"], "make_admin", "user", user_id)
+            return
         status = "approved" if action == "approve" else "rejected"
         if action == "approve":
             # Admin onayi belge durumundan bagimsizdir: admin istedigi hesabi
@@ -5118,7 +5435,7 @@ def release_order_reservation(conn: sqlite3.Connection, order_id: int, amount: f
         if remaining <= 0:
             break
         restore = min(float(item["amount"]), remaining)
-        if item["settlement_status"] == "pending" and int(item["settlement_date"]) > now():
+        if item["settlement_status"] == "pending":
             conn.execute("UPDATE t2_settlements SET remaining_amount=remaining_amount+? WHERE id=?", (restore, item["settlement_id"]))
             pending_future = round(pending_future + restore, 2)
         else:
@@ -5153,17 +5470,14 @@ def credit_sale_proceeds(
     note: str,
 ) -> int:
     account = account_for(conn, user_id)
-    if t2_is_enabled(conn):
-        before = float(account["pending_balance"])
-        after = round(before + total, 2)
-        conn.execute("UPDATE accounts SET pending_balance=? WHERE user_id=?", (after, user_id))
-        tx_id = write_transaction(conn, user_id, "trade_sell", total, before, after, order_id=order_id, code=symbol, name=name, quantity=quantity, price=price, note=note)
-        create_t2_settlement(conn, user_id, order_id, tx_id, symbol, name, total, quantity, price)
-        return tx_id
-    before = float(account["cash_balance"])
+    # Satış hasılatının tamamı süresiz T+2 (pending_balance) bakiyesine aktarılır.
+    # Yönetici admin panelinden manuel onay verene kadar çekilebilir konuma geçmez.
+    before = float(account["pending_balance"])
     after = round(before + total, 2)
-    conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (after, user_id))
-    return write_transaction(conn, user_id, "trade_sell", total, before, after, order_id=order_id, code=symbol, name=name, quantity=quantity, price=price, note=f"{note} · T+2 kapalı")
+    conn.execute("UPDATE accounts SET pending_balance=? WHERE user_id=?", (after, user_id))
+    tx_id = write_transaction(conn, user_id, "trade_sell", total, before, after, order_id=order_id, code=symbol, name=name, quantity=quantity, price=price, note=note)
+    create_t2_settlement(conn, user_id, order_id, tx_id, symbol, name, total, quantity, price)
+    return tx_id
 
 
 def position_avg_price(conn: sqlite3.Connection, user_id: int, symbol: str) -> float:
@@ -5215,14 +5529,10 @@ def document_rows(conn: sqlite3.Connection, where: str = "", params: tuple = ())
 
 
 def settle_due_t2(conn: sqlite3.Connection) -> None:
-    if t2_is_enabled(conn):
-        rows = conn.execute("SELECT id FROM t2_settlements WHERE status='pending' AND settlement_date<=?", (now(),)).fetchall()
-    else:
-        rows = conn.execute("SELECT id FROM t2_settlements WHERE status='pending'").fetchall()
-    for row in rows:
-        settle_one_t2(conn, int(row["id"]))
-    if rows:
-        conn.commit()
+    # Süresiz T+2: Otomatik takas / çözüm tamamen devre dışıdır.
+    # Kullanıcı hisse sattığında tutar süresiz olarak pending_balance'ta kalır.
+    # Yalnızca admin panelinden yönetici manuel onay ("Şimdi Çöz") verdiğinde çekilebilir nakde geçer.
+    pass
 
 
 def settle_one_t2(conn: sqlite3.Connection, settlement_id: int) -> None:
@@ -5415,6 +5725,13 @@ def public_user(user: dict, include_sensitive: bool = False) -> dict:
         data["buy_count"] = user.get("buy_count", 0)
         data["sell_count"] = user.get("sell_count", 0)
         data["transaction_count"] = user.get("transaction_count", 0)
+        # Giris kilidi: 5 hatali denemeden sonra 15 dk kilitlenir (bkz.
+        # api_login). Admin panelinde gorunur olmazsa "sifre/TC duzelttim
+        # ama hala giremiyor" sikayetleri bosu bosuna debug edilir.
+        kilit_kalan = int(user.get("locked_until") or 0) - now()
+        data["login_locked"] = kilit_kalan > 0
+        data["login_locked_minutes"] = max(1, (kilit_kalan + 59) // 60) if kilit_kalan > 0 else 0
+        data["failed_login_count"] = int(user.get("failed_login_count") or 0)
     return data
 
 
@@ -5655,6 +5972,7 @@ def haberleri_isit() -> None:
 if __name__ == "__main__":
     init_db()
     haberleri_isit()
+    katilimi_esitle()
     server = ThreadingHTTPServer(("", PORT), AppHandler)
     print(f"Mukatabak backend running at http://localhost:{PORT}")
     print(f"Database: {DB_PATH}")

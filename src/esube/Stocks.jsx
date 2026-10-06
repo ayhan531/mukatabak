@@ -3,7 +3,7 @@ import React, { useMemo, useState } from "react";
 import Icon from "./icons.jsx";
 import { SearchBox, LazyList } from "./ui.jsx";
 import { InstrumentRow } from "./Home.jsx";
-import { listFor, search, movers, BIST } from "./market.js";
+import { listFor, search, movers, BIST, MARKET_NAMES, MARKET_TAB_ORDER, MARKET_CONTACT_TEXT, TRADABLE_MARKETS } from "./market.js";
 import { T } from "./lang.js";
 
 const Group = ({ tone, title, items, openTrade }) => (
@@ -24,15 +24,18 @@ const Group = ({ tone, title, items, openTrade }) => (
       <div className="mk-empty">
         <Icon name="bars" size={28} />
         <b>{T("Kayıt yok")}</b>
-        <span>{T("Piyasa açıldığında burası dolar.")}</span>
+        <span>{T("Bu listede gösterilecek kayıt yok.")}</span>
       </div>
     )}
   </section>
 );
 
-export default function Stocks({ instruments, state, unread, onNotifications, openTrade }) {
+export default function Stocks({ instruments, state, unread, onNotifications, openTrade, onNotice }) {
   const [query, setQuery] = useState("");
-  const stocks = useMemo(() => listFor(BIST, instruments), [instruments]);
+  /* Piyasa sekmeleri: BIST Tüm, 100, 50, 30, Katılım, Halka Arz, Fon, Döviz.
+     Katılım listesi backend'den (Borsa İstanbul dosyası) gelen bayrağa göre süzülür. */
+  const [tab, setTab] = useState(BIST);
+  const stocks = useMemo(() => listFor(tab, instruments), [tab, instruments]);
   const results = useMemo(() => search(query, stocks, 500), [query, stocks]);
   const up = useMemo(() => movers(stocks, true, 7), [stocks]);
   const down = useMemo(() => movers(stocks, false, 7), [stocks]);
@@ -52,6 +55,18 @@ export default function Stocks({ instruments, state, unread, onNotifications, op
       </div>
 
       <SearchBox placeholder={T("Hisse ara")} value={query} onChange={setQuery} />
+
+      <div className="mk-piyasa-seg">
+        {MARKET_TAB_ORDER.map((index) => (
+          <button
+            key={index}
+            className={tab === index ? "on" : ""}
+            onClick={() => { setTab(index); setQuery(""); }}
+          >
+            {T(MARKET_NAMES[index])}
+          </button>
+        ))}
+      </div>
 
       {query ? (
         <section className="mk-card">
@@ -80,12 +95,15 @@ export default function Stocks({ instruments, state, unread, onNotifications, op
         </div>
       ) : (
         <>
-          <Group tone="up" title={T("En Çok Yükselenler")} items={up} openTrade={openTrade} />
-          <Group tone="down" title={T("En Çok Düşenler")} items={down} openTrade={openTrade} />
-          {/* Aramaya gerek kalmadan BIST'teki bütün hisseler listelenir. */}
+          {tab === BIST && <Group tone="up" title={T("En Çok Yükselenler")} items={up} openTrade={openTrade} />}
+          {tab === BIST && <Group tone="down" title={T("En Çok Düşenler")} items={down} openTrade={openTrade} />}
+          {!TRADABLE_MARKETS.has(tab) && MARKET_CONTACT_TEXT[tab] && (
+            <div className="mk-bilgi"><Icon name="info" size={17} /><span>{T(MARKET_CONTACT_TEXT[tab])}</span></div>
+          )}
+          {/* Aramaya gerek kalmadan seçili piyasadaki bütün kayıtlar listelenir. */}
           <section className="mk-card">
             <div className="mk-card-head">
-              <h2>{T("Tüm Hisseler")}</h2>
+              <h2>{tab === BIST ? T("Tüm Hisseler") : T(MARKET_NAMES[tab])}</h2>
               <span className="count">{all.length} {T("hisse")}</span>
             </div>
             <LazyList

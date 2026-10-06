@@ -115,7 +115,7 @@ export default function Account({
                     <b style={{ color: renk }}>{item.status_label || T("Beklemede")}</b>
                   </span>
                   {item.status === "rejected" && item.admin_note && (
-                    <span className="mk-req-not">{T("Not:")} {item.admin_note}</span>
+                    <span className="mk-req-not">{item.status_label === "İptal" ? T("Not:") : T("Ret nedeni:")} {item.admin_note}</span>
                   )}
                   {item.status === "pending" && item.request_type === "withdraw" && onCancelMoneyRequest && (
                     <button className="mk-btn ghost small" onClick={() => onCancelMoneyRequest(item)}>

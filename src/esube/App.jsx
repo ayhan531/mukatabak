@@ -18,7 +18,7 @@ import { api, usePref, useMarket, useNews, usePortfolio, useNotifications, useMo
 import { savedAccounts, forgetAccount, setPendingTc } from "./accounts.js";
 import { useGeriTusu } from "./geri.js";
 import { canInstall, onInstallChange, promptInstall, isStandalone, isApple, iosBrowser, iosToolbarAtBottom, uygulamaIciTarayici, tarayicidaAc, kurulumSemasi, adresiKopyala, kurulumAdresi, kurulumIstendi, pushState, enablePush, disablePush, syncPushPrefs } from "./pwa.js";
-import { listFor, search, money, monogram as monogramOf, BIST, TRADABLE_MARKETS, MARKET_NAMES, MARKET_CONTACT_TEXT, IPO, FUNDS, PARTICIPATION, parseAmount, group } from "./market.js";
+import { listFor, search, money, monogram as monogramOf, BIST, TRADABLE_MARKETS, MARKET_NAMES, MARKET_CONTACT_TEXT, IPO, FUNDS, parseAmount, group } from "./market.js";
 import { T, setLangIndex, LANG_CODES } from "./lang.js";
 
 export const APP_VERSION = "2.5.1";
@@ -341,7 +341,6 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
     fund: ["Fon işlemleri", "Fon alış satışları için referansınız ile iletişime geçiniz."],
     ipo: ["Halka arz talebi", "Halka arz alış satışları için referansınız ile iletişime geçiniz."],
     currency: ["Döviz işlemleri", "Döviz alış satışları için referansınız ile iletişime geçiniz."],
-    participation: ["Katılım hisse işlemleri", "Katılım hisse alış satışları için referansınız ile iletişime geçiniz."],
   };
   const openTrade = (item, { sheet = false, buying = true, searchable = false } = {}) => {
     const stock = asStock(item);
@@ -428,7 +427,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
               try { await api(`/api/orders/${order.id}/cancel`, { method: "POST", body: "{}" }); } catch (error) { showNotice("Emir iptali", error.message); }
               portfolio.reload();
             }}
-            onCreateOrder={() => openTrade(lastStock || listFor(BIST, market.instruments)[0], { searchable: true, sheet: true })}
+            onCreateOrder={() => setOverlay({ kind: "picker" })}
           />
         );
       case 4:
@@ -609,6 +608,9 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
             onOpenNews={(item) => { setArticle(item); go(14, 0); }}
             onAllNews={() => go(16, 0)}
             openTrade={openStock}
+            me={me}
+            kycApproved={kycApproved}
+            onOpenKyc={() => setOverlay({ kind: "documents" })}
           />
         );
     }
@@ -619,7 +621,7 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
 
   const navigate = (index) => {
     if (index === 2) {
-      openTrade(lastStock || listFor(BIST, market.instruments)[0], { searchable: true, sheet: true });
+      setOverlay({ kind: "picker" });
       return;
     }
     go(index);

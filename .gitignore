@@ -21,3 +21,8 @@ _sync.bundle
 # test veritabanlari
 tools/test_*.db
 tools/test_*.db
+
+# test veritabanlari
+tools/test_*.db*
+*.bundle
+_ottoman.tgz

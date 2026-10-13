@@ -32,7 +32,7 @@ bekle("arife 2026-05-26 12:30 açık", isMarketOpen(an("2026-05-26T12:30")) === 
 bekle("arife 2026-05-26 14:00 kapalı", isMarketOpen(an("2026-05-26T14:00")) === false);
 
 /* ---- fiyat sapması sınırları ---- */
-bekle("0-50 TL bandı 0,09", Math.abs(getMaxDeviation(30) - 0.09) < 1e-9, getMaxDeviation(30));
+bekle("0-50 TL bandı en fazla 0,09 (düşük fiyatta orantılı)", Math.abs(getMaxDeviation(45) - 0.09) < 1e-9 && Math.abs(getMaxDeviation(30) - 0.06) < 1e-9, getMaxDeviation(30));
 bekle("50-200 TL bandı 0,10", Math.abs(getMaxDeviation(120) - 0.10) < 1e-9, getMaxDeviation(120));
 bekle("200+ TL bandı 0,20", Math.abs(getMaxDeviation(450) - 0.20) < 1e-9, getMaxDeviation(450));
 

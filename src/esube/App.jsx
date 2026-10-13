@@ -364,9 +364,13 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
   const kycApproved = Boolean(me?.is_test_user) || me?.status === "approved";
   const stockValue = holdings.reduce((sum, item) => sum + item.value, 0);
   const cash = Number(account?.cash_balance || 0);
+  const pending = Number(account?.pending_balance || 0);
   const legacyBlocked = Number(account?.blocked_balance || 0);
   const pendingWithdrawals = Number(account?.pending_withdrawals || 0);
-  const available = Math.max(0, cash - legacyBlocked - pendingWithdrawals);
+  // Alım/satım işlemlerinde bakiye her zaman kullanılabilir:
+  const available = Math.max(0, cash + pending - legacyBlocked - pendingWithdrawals);
+  // Para çekmede yalnızca T+2 dışındaki onaylı serbest nakit çekilebilir:
+  const withdrawable = Math.max(0, cash - legacyBlocked - pendingWithdrawals);
   const monogram = monogramOf(me?.full_name || "İsim Soyisim");
 
   const toggleWatch = (code) =>
@@ -759,7 +763,8 @@ export default function App({ me, onLogout, onAdmin, onExit, refreshMe }) {
       {overlay?.kind === "transfer" && (
         <TransferSheet
           deposit={overlay.deposit}
-          available={available}
+          available={withdrawable}
+          pending={pending}
           kurumHesaplari={kurumHesaplari}
           bankAccounts={bankAccounts}
           me={me}
@@ -1094,7 +1099,7 @@ function IdentityDocs({ documents, onClose, onNotice, onDone }) {
   );
 }
 
-function TransferSheet({ deposit, available, kurumHesaplari, bankAccounts, me, onClose, onDone }) {
+function TransferSheet({ deposit, available, pending = 0, kurumHesaplari, bankAccounts, me, onClose, onDone }) {
   const kayitli = bankAccounts || [];
   const [amountText, setAmountText] = useState("");
   /* Kayıtlı hesabı olan müşteri her seferinde IBAN yazmaz: listeden seçer.
@@ -1175,6 +1180,11 @@ function TransferSheet({ deposit, available, kurumHesaplari, bankAccounts, me, o
             <div className="tl-balance">
               <span>{T("ÇEKİLEBİLİR BAKİYE")}</span>
               <strong>{money(available)}</strong>
+              {pending > 0 && (
+                <small style={{ color: "var(--muted)", marginTop: 6, display: "block", fontSize: "0.85em" }}>
+                  {T("T+2 Takastaki Bakiye:")} {money(pending)} ({T("Yalnızca hisse alımında kullanılabilir")})
+                </small>
+              )}
             </div>
             {kayitli.length > 0 && (
               <label className="tl-field">

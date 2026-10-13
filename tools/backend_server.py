@@ -273,49 +273,8 @@ NEWS_SOURCES = {
 }
 
 
-FALLBACK_QUOTES = [
-    ("XU100", "BIST 100", 11048.12, 0.72, 0, "index"),
-    ("XU030", "BIST 30", 12204.48, 0.68, 0, "index"),
-    ("XBANK", "BIST Banka", 15782.35, 1.18, 0, "index"),
-    ("USDTRY", "Amerikan Doları", 48.81, 0.0, 0, "fx"),
-    ("EURTRY", "Euro", 56.07, 0.0, 0, "fx"),
-    ("GBPTRY", "İngiliz Sterlini", 65.22, 0.0, 0, "fx"),
-    ("XAUTRY", "Gram Altın", 4424.18, 0.44, 0, "commodity"),
-    ("XAGTRY", "Gram Gümüş", 52.31, -0.22, 0, "commodity"),
-    ("BRENT", "Brent Petrol", 80.24, -0.36, 0, "commodity"),
-    ("BTCUSD", "Bitcoin", 114250.0, 1.74, 0, "crypto"),
-    ("AKBNK", "Akbank T.A.S.", 67.65, -0.51, 88400000),
-    ("ARCLK", "Arcelik A.S.", 142.40, 0.64, 11700000),
-    ("ASELS", "Aselsan Elektronik Sanayi ve Ticaret A.S.", 381.25, -1.99, 24100000),
-    ("ASTOR", "Astor Enerji A.S.", 102.60, 2.18, 36500000),
-    ("BRSAN", "Borusan Mannesmann", 480.25, 1.16, 1800000),
-    ("BIMAS", "BIM Birlesik Magazalar A.S.", 405.00, 6.02, 19200000),
-    ("DOAS", "Dogus Otomotiv", 214.80, -0.42, 4100000),
-    ("EKGYO", "Emlak Konut GYO", 16.26, 1.54, 220000000),
-    ("ENKAI", "Enka Insaat", 65.20, 0.37, 29400000),
-    ("EREGL", "Eregli Demir Celik", 27.88, -0.71, 196000000),
-    ("FROTO", "Ford Otosan", 1036.00, 0.86, 2200000),
-    ("GARAN", "Garanti BBVA", 134.70, 1.11, 98200000),
-    ("GUBRF", "Gubre Fabrikalari", 274.50, -1.04, 6200000),
-    ("HALKB", "Halkbank", 23.76, 0.51, 128000000),
-    ("ISCTR", "Turkiye Is Bankasi A.S. C", 12.38, -0.16, 356000000),
-    ("KCHOL", "Koc Holding A.S.", 189.20, 0.73, 31500000),
-    ("KRDMD", "Kardemir D", 27.34, -0.88, 156000000),
-    ("MGROS", "Migros Ticaret", 545.50, 1.92, 2700000),
-    ("PETKM", "Petkim", 21.28, -0.36, 186000000),
-    ("PGSUS", "Pegasus Hava Tasimaciligi A.S.", 149.30, -1.26, 13800000),
-    ("SAHOL", "Sabanci Holding", 101.40, 0.95, 54200000),
-    ("SASA", "Sasa Polyester Sanayi A.S.", 2.25, -3.85, 2900000000),
-    ("SISE", "Turkiye Sise ve Cam Fabrikalari", 49.16, -0.28, 70200000),
-    ("TCELL", "Turkcell", 97.35, 0.48, 27500000),
-    ("THYAO", "Turk Hava Yollari A.O.", 300.50, -0.17, 78300000),
-    ("TOASO", "Tofas Turk Otomobil", 224.90, 0.32, 3400000),
-    ("TSKB", "Turkiye Sinai Kalkinma Bankasi", 13.72, 2.46, 284000000),
-    ("TUPRS", "Tupras", 169.80, -0.64, 61200000),
-    ("VAKBN", "Vakifbank", 25.18, 0.88, 178000000),
-    ("YKBNK", "Yapi Kredi Bankasi", 31.64, 1.38, 342000000),
-    ("ALARK", "Alarko Holding A.S.", 107.00, 3.08, 5300000),
-]
+# Sabit/örnek fiyat tohumu yok: ekranda yalnızca kaynaktan gelmiş gerçek veri gösterilir.
+FALLBACK_QUOTES: list = []
 
 
 def now() -> int:
@@ -1133,8 +1092,13 @@ def seed_test_user(conn: sqlite3.Connection) -> None:
 def seed_market(conn: sqlite3.Connection) -> None:
     count = conn.execute("SELECT COUNT(*) AS c FROM market_cache").fetchone()["c"]
     ts = 0
+    quotes = list(FALLBACK_QUOTES)
+    if os.environ.get("MUKATABAK_TEST_QUOTES") == "1":
+        # Yalnızca testler: canlı kaynağa erişilemeyen ortamda örnek fiyatlar "taze" sayılır.
+        from test_quotes import TEST_QUOTES
+        quotes, ts = list(TEST_QUOTES), now()
     normalized = []
-    for row in FALLBACK_QUOTES:
+    for row in quotes:
         symbol, name, price, change, volume, *rest = row
         normalized.append((symbol, name, price, change, volume, rest[0] if rest else "stock", ts))
     if count:
@@ -1369,6 +1333,7 @@ def market_from_cache(conn: sqlite3.Connection) -> list[dict]:
           COALESCE(p.note, '') AS participation_note
         FROM market_cache m
         LEFT JOIN participation_index p ON p.symbol = m.symbol
+        WHERE m.updated_at > 0
         ORDER BY
           CASE m.symbol
             WHEN 'XU100' THEN 0 WHEN 'XU030' THEN 1 WHEN 'XBANK' THEN 2
@@ -1665,8 +1630,80 @@ def refresh_fx(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+
+INDEX_TICKERS = {
+    "BIST:XU100": ("XU100", "BIST 100"),
+    "BIST:XU050": ("XU050", "BIST 50"),
+    "BIST:XU030": ("XU030", "BIST 30"),
+    "BIST:XKTUM": ("XKTUM", "BIST Katılım Tüm"),
+    "BIST:XBANK": ("XBANK", "BIST Banka"),
+}
+INDEX_REFRESH_SECONDS = int(os.environ.get("INDEX_REFRESH_SECONDS", "20"))
+_index_refreshed_at = 0.0
+
+
+def refresh_indices(conn: sqlite3.Connection) -> None:
+    """BIST endekslerini (XU100/XU050/XU030/XKTUM/XBANK) TradingView endeks verisinden çeker.
+
+    Sadece kaynaktan gerçekten gelen değer yazılır; kaynak okunamazsa önceki
+    gerçek değer olduğu gibi kalır, sabit/uydurma değer hiçbir zaman yazılmaz.
+    Daha önce kurulumla gelmiş sabit (updated_at=0) endeks satırları silinir.
+    """
+    global _index_refreshed_at
+    # Kurulumla gelmiş sabit/örnek fiyat satırlarını (hiç canlı güncellenmemiş) temizle.
+    conn.execute("DELETE FROM market_cache WHERE updated_at<=0 AND metadata_updated_at<=0")
+    if time.time() - _index_refreshed_at < INDEX_REFRESH_SECONDS:
+        return
+    _index_refreshed_at = time.time()
+    body = json.dumps(
+        {
+            "symbols": {"tickers": list(INDEX_TICKERS), "query": {"types": []}},
+            "columns": ["name", "close", "change"],
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        TRADINGVIEW_SCANNER_URL,
+        data=body,
+        headers={"Content-Type": "application/json", "User-Agent": "MukatabakBackend/2.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=MARKET_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return
+    ts = now()
+    rows = []
+    for item in payload.get("data", []) if isinstance(payload, dict) else []:
+        ticker = str(item.get("s", "")) if isinstance(item, dict) else ""
+        values = item.get("d") if isinstance(item, dict) else None
+        if ticker not in INDEX_TICKERS or not isinstance(values, list) or len(values) < 3:
+            continue
+        try:
+            price = float(values[1])
+            change = float(values[2])
+        except (TypeError, ValueError):
+            continue
+        if not (price > 0) or abs(change) > 25:
+            continue
+        symbol, name = INDEX_TICKERS[ticker]
+        rows.append((symbol, name, round(price, 2), round(change, 2), 0, "index", ts))
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO market_cache (symbol, name, price, change_pct, volume, asset_class, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET
+              price=excluded.price, change_pct=excluded.change_pct, updated_at=excluded.updated_at
+            """,
+            rows,
+        )
+        conn.commit()
+
+
 def refresh_market(conn: sqlite3.Connection) -> list[dict]:
     refresh_fx(conn)
+    refresh_indices(conn)
     if not market_feed_enabled(conn):
         # Panelden "borsadan fiyat çekmeyi durdur" denmiş: son fiyatlar dondurulur.
         apply_manual_prices(conn)
@@ -1731,7 +1768,7 @@ def refresh_market(conn: sqlite3.Connection) -> list[dict]:
 def find_quote(conn: sqlite3.Connection, symbol: str, *, refresh: bool = False) -> dict | None:
     if refresh:
         refresh_market(conn)
-    row = conn.execute("SELECT * FROM market_cache WHERE symbol=?", (symbol.upper(),)).fetchone()
+    row = conn.execute("SELECT * FROM market_cache WHERE symbol=? AND updated_at>0", (symbol.upper(),)).fetchone()
     return dict(row) if row else None
 
 
@@ -1979,7 +2016,7 @@ def spk_bulletin_news() -> list[dict]:
 # sorgusu, tarihe göre sıralı. Sekme sırası MarketNames ile aynıdır.
 MARKET_NEWS_QUERIES = [
     "Borsa İstanbul", "BIST 100", "BIST 30", "katılım endeksi",
-    "temettü", "halka arz", "yatırım fonu", "dolar euro kur",
+    "temettü", "halka arz", "yatırım fonu", "dolar euro kur", "BIST 50",
 ]
 MARKET_NEWS_CACHE: dict[int, dict] = {}
 MARKET_NEWS_REFRESH_SECONDS = int(os.environ.get("MARKET_NEWS_REFRESH_SECONDS", "600"))
@@ -2162,7 +2199,8 @@ def market_news(market: int) -> tuple[list[dict], bool]:
         items, _bilgi = fotolu_sekme_haberleri(market, en_az=14)
     except Exception:            # ağ/ayrıştırma sorunu Bing yedeğini engellemesin
         items = []
-    if not items:
+    if not items and market not in (1, 2, 3, 8):
+        # Endeks sekmelerinde genel Bing yedeği kullanılmaz: aynı haberler her sekmede çıkıyordu.
         items = [haber for haber in fetch_market_news(market) if haber.get("image_url")]
     # Fotoğrafsız haber gösterilmez: görselsiz Bing yedeğine asla düşülmez,
     # bulunamazsa sekme boş kalır ya da son bilinen fotoğraflı listeye dönülür.
@@ -5470,14 +5508,17 @@ def credit_sale_proceeds(
     note: str,
 ) -> int:
     account = account_for(conn, user_id)
-    # Satış hasılatının tamamı süresiz T+2 (pending_balance) bakiyesine aktarılır.
-    # Yönetici admin panelinden manuel onay verene kadar çekilebilir konuma geçmez.
-    before = float(account["pending_balance"])
+    if t2_is_enabled(conn):
+        before = float(account["pending_balance"])
+        after = round(before + total, 2)
+        conn.execute("UPDATE accounts SET pending_balance=? WHERE user_id=?", (after, user_id))
+        tx_id = write_transaction(conn, user_id, "trade_sell", total, before, after, order_id=order_id, code=symbol, name=name, quantity=quantity, price=price, note=note)
+        create_t2_settlement(conn, user_id, order_id, tx_id, symbol, name, total, quantity, price)
+        return tx_id
+    before = float(account["cash_balance"])
     after = round(before + total, 2)
-    conn.execute("UPDATE accounts SET pending_balance=? WHERE user_id=?", (after, user_id))
-    tx_id = write_transaction(conn, user_id, "trade_sell", total, before, after, order_id=order_id, code=symbol, name=name, quantity=quantity, price=price, note=note)
-    create_t2_settlement(conn, user_id, order_id, tx_id, symbol, name, total, quantity, price)
-    return tx_id
+    conn.execute("UPDATE accounts SET cash_balance=? WHERE user_id=?", (after, user_id))
+    return write_transaction(conn, user_id, "trade_sell", total, before, after, order_id=order_id, code=symbol, name=name, quantity=quantity, price=price, note=f"{note} · T+2 kapalı")
 
 
 def position_avg_price(conn: sqlite3.Connection, user_id: int, symbol: str) -> float:
@@ -5529,10 +5570,14 @@ def document_rows(conn: sqlite3.Connection, where: str = "", params: tuple = ())
 
 
 def settle_due_t2(conn: sqlite3.Connection) -> None:
-    # Süresiz T+2: Otomatik takas / çözüm tamamen devre dışıdır.
-    # Kullanıcı hisse sattığında tutar süresiz olarak pending_balance'ta kalır.
-    # Yalnızca admin panelinden yönetici manuel onay ("Şimdi Çöz") verdiğinde çekilebilir nakde geçer.
-    pass
+    if t2_is_enabled(conn):
+        rows = conn.execute("SELECT id FROM t2_settlements WHERE status='pending' AND settlement_date<=?", (now(),)).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM t2_settlements WHERE status='pending'").fetchall()
+    for row in rows:
+        settle_one_t2(conn, int(row["id"]))
+    if rows:
+        conn.commit()
 
 
 def settle_one_t2(conn: sqlite3.Connection, settlement_id: int) -> None:

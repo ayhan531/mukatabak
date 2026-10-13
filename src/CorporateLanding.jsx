@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight, ArrowUpRight, Landmark, PieChart, ArrowLeftRight, Users, Check, Menu, X,
   ShieldCheck, Smartphone, Headphones, TrendingUp, Wallet, LineChart, Lock, Clock,
-  FileText, BarChart3, Building2, Mail, Phone, MapPin, Bell, Eye, Zap, Search,
+  FileText, BarChart3, Building2, Mail, Phone, MapPin, Bell, Eye, Zap, Search, MessageCircle,
 } from 'lucide-react';
+import { SUPPORT_WHATSAPP_URL, SUPPORT_PHONE_DISPLAY } from './support.js';
 import './corporate.css';
 
 /* ============================================================
@@ -831,6 +832,7 @@ export default function CorporateLanding({ openAuth }) {
                 <p className="lead">Yatırımcı destek ve hesap işlemleri</p>
                 <div className="contact-grid">
                   {[
+                    [MessageCircle, 'WhatsApp Destek Hattı', SUPPORT_PHONE_DISPLAY, 'Mesaj yazarak hemen ulaşın'],
                     [Phone, 'Yatırımcı Destek Hattı', '0850 888 70 00', 'Hafta içi 09:00 – 18:00'],
                     [Mail, 'E-posta', 'destek@mukatabak.app', 'Aynı iş günü içinde yanıt'],
                     [MapPin, 'Merkez', 'Levent, İstanbul', 'Randevu ile ziyaret'],
@@ -851,6 +853,7 @@ export default function CorporateLanding({ openAuth }) {
                   telefonla paylaşmayın; kurum çalışanları şifrenizi talep etmez.
                 </p>
                 <div className="page-actions">
+                  <a className="corporate-primary corporate-wa-btn" href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noopener noreferrer"><MessageCircle size={18} /> WhatsApp Destek Hattı · {SUPPORT_PHONE_DISPLAY}</a>
                   <button className="corporate-primary" onClick={openAuth}>E-Şube’ye giriş <ArrowRight size={17} /></button>
                 </div>
               </>
@@ -890,6 +893,7 @@ export default function CorporateLanding({ openAuth }) {
           {link('SSS')}
           {link('Sözleşmeler')}
           {link('İletişim')}
+          <a href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noopener noreferrer">WhatsApp Destek</a>
         </div>
         <small>
           <span className="risk">
@@ -903,6 +907,7 @@ export default function CorporateLanding({ openAuth }) {
           <span className="copy">© {new Date().getFullYear()} Mukatabak Yatırım. Tüm hakları saklıdır. · Bu platform bir demo/tanıtım projesidir.</span>
         </small>
       </footer>
+      <a className="corporate-wa-float" href={SUPPORT_WHATSAPP_URL} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp destek hattı"><MessageCircle size={22} /><span>Destek</span></a>
     </div>
   );
 }

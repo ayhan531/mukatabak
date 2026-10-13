@@ -1,10 +1,12 @@
 // Hesap — Mukatabak 2.5.1 APK'sındaki "Hesap" ekranının birebir karşılığı.
-import React, { useRef } from "react";
+import React, { useRef, useState } from "react";
 import Icon from "./icons.jsx";
 import { money } from "./market.js";
 import { T } from "./lang.js";
+import { Sheet } from "./ui.jsx";
+import { SUPPORT_WHATSAPP_URL, SUPPORT_PHONE_DISPLAY } from "../support.js";
 
-const TONE = { t1: "var(--ink)", t2: "#6c5ce7", t3: "#e0a12a", t4: "#16a34a", t5: "var(--ink)", t6: "#7b5bdc" };
+const TONE = { t1: "var(--ink)", t2: "#6c5ce7", t3: "#e0a12a", t4: "#16a34a", t5: "var(--ink)", t6: "#7b5bdc", t7: "#0e9a8a" };
 
 const Row = ({ tile, icon, title, subtitle, onClick }) => (
   <button onClick={onClick}>
@@ -23,6 +25,7 @@ export default function Account({
   onTransfer, onHistory, onOrders, onBanks, onLogout, onExport,
   onOpenKyc, kycApproved, moneyRequests, onCancelMoneyRequest,
 }) {
+  const [supportOpen, setSupportOpen] = useState(false);
   const bakiyeGecmisi = useRef(null);
   const cash = Number(account?.cash_balance || 0);
   const blocked = Number(account?.blocked_balance || 0);
@@ -30,7 +33,8 @@ export default function Account({
      çekmeye gönderdiği parayı ikinci kez harcayamaz. */
   const pendingWithdrawals = Number(account?.pending_withdrawals || 0);
   const pending = Number(account?.pending_balance || 0);
-  const available = Math.max(0, cash - blocked - pendingWithdrawals);
+  // Hisse alımında T+2 bakiyesi de kullanılabilir.
+  const available = Math.max(0, cash + pending - blocked - pendingWithdrawals);
   const verified = kycApproved ?? (String(me?.kyc_status || "").toLowerCase() === "approved" || String(me?.status || "") === "active");
   const kilitli = kycApproved === false;
 
@@ -81,7 +85,7 @@ export default function Account({
         <span className="wallet"><Icon name="wallet" size={20} /></span>
         <div className="k">{T("Kullanılabilir Bakiye")}</div>
         <div className="v">{money(available)}</div>
-        <div className="t2">{T("T+2 bakiye")} {money(cash + pending)}</div>
+        <div className="t2">{T("T+2 bakiye")} {money(pending)}</div>
         {pendingWithdrawals > 0 && (
           <div className="t2">{T("Çekim talebinde bekleyen")} {money(pendingWithdrawals)}</div>
         )}
@@ -151,7 +155,25 @@ export default function Account({
         <Row tile="t5" icon="sliders" title={T("Ayarlar")} subtitle={T("Dil, tema, yazı boyutu, gece-gündüz")} onClick={onOpenSettings} />
         <div className="hline" />
         <Row tile="t6" icon="list" title={T("Güvenlik Politikası ve Sözleşmeler")} subtitle={T("KVKK, çerçeve sözleşme, risk bildirimi")} onClick={onOpenContracts} />
+        <div className="hline" />
+        {/* Müşteri hizmetleri: telefon satırda değil, tıklanınca açılan pencerede gösterilir. */}
+        <Row tile="t7" icon="headset" title={T("Yardım ve destek")} subtitle={T("Müşteri hizmetleri ile iletişime geçin")} onClick={() => setSupportOpen(true)} />
       </section>
+
+      {supportOpen && (
+        <Sheet title={T("Yardım ve destek")} onClose={() => setSupportOpen(false)}>
+          <div className="mk-destek">
+            <span className="tl-note">{T("Müşteri hizmetleri ekibimize WhatsApp üzerinden yazabilirsiniz.")}</span>
+            <div className="mk-destek-no">
+              <small>{T("WhatsApp destek hattı")}</small>
+              <strong>{SUPPORT_PHONE_DISPLAY}</strong>
+            </div>
+            <button className="mk-btn solid" style={{ width: "100%", height: 50 }} onClick={() => window.open(SUPPORT_WHATSAPP_URL, "_blank", "noopener,noreferrer")}>
+              {T("WhatsApp ile yaz")}
+            </button>
+          </div>
+        </Sheet>
+      )}
 
       {onExport && (
         <button className="mk-btn ghost" style={{ width: "100%", height: 52 }} onClick={onExport}>

@@ -1053,3 +1053,9 @@ body.esube-open { background: var(--bg5); }
 .katilim-rozet { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; font-size: calc(12px * var(--s)); font-weight: 700; }
 .katilim-rozet.uygun { background: var(--tint-green); color: var(--ink-green); }
 .katilim-rozet.uygun-degil { background: var(--rose); color: var(--red); }
+
+/* Yardım ve destek penceresi */
+.mk-destek { display: flex; flex-direction: column; gap: 14px; }
+.mk-destek-no { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 16px; background: rgba(255, 255, 255, .85); border: 1px solid var(--edge); }
+.mk-destek-no small { font-size: calc(12px * var(--s)); color: var(--muted); }
+.mk-destek-no strong { font-size: calc(19px * var(--s)); letter-spacing: .2px; color: var(--ink); }

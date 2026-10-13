@@ -174,7 +174,9 @@ export default function Portfolio({
   const pendingWithdrawals = Number(account?.pending_withdrawals || 0);
   const blocked = Number(account?.orders_reserved || 0);
   const pending = Number(account?.pending_balance || 0);
-  const available = Math.max(0, cash - blocked);
+  // Emirde bekleyen tutar backend'de nakitten zaten düşülür; ikinci kez düşülmez.
+  // Alımda T+2 bakiyesi de kullanılabilir.
+  const available = Math.max(0, cash + pending - legacyBlocked - pendingWithdrawals);
   const total = stockValue + cash + pending;
   const dayProfit = holdings.reduce((sum, item) => sum + item.quantity * item.dayDelta, 0);
   const dayRatio = total - dayProfit > 0 ? (dayProfit / (total - dayProfit)) * 100 : 0;
@@ -256,7 +258,7 @@ export default function Portfolio({
         <div className="mk-duo">
           <div>
             <span className="k"><Icon name="wallet" size={15} />{T("T+2 Bakiye")}</span>
-            <span className="v">{mask(money(cash + pending))}</span>
+            <span className="v">{mask(money(pending))}</span>
           </div>
           <div>
             <span className="k"><Icon name="check" size={15} />{T("Kullanılabilir")}</span>

@@ -259,6 +259,7 @@ export const toInstrument = (quote) => {
     previousClose: previous,
     rawPrice: price,
     volume: Number(quote.volume || 0),
+    updatedAt: Number(quote.updated_at || 0),
     logo: quote.logo_url ? `/api/logo/${encodeURIComponent(symbol)}` : "",
     assetClass: quote.asset_class || "stock",
     currency: isFx ? "TRY" : quote.asset_class === "index" ? "" : "TRY",
@@ -280,27 +281,35 @@ export const toInstrument = (quote) => {
 /** Hisse fiyat aralığına göre izin verilen maksimum sapma (+/-). */
 export function getMaxDeviation(price) {
   const p = Number(price) || 0;
-  if (p <= 50.0) return 0.09;
-  if (p <= 200.0) return 0.10;
-  return 0.20;
+  if (p <= 0) return 0.01;
+  let cap = 0.09;
+  if (p > 200.0) cap = 0.20;
+  else if (p > 50.0) cap = 0.10;
+
+  // Düşük fiyatlı hisselerde (örneğin 0.50 - 5 TL) sabit 0.09 TL eklemek
+  // yüzdesel olarak %10-%18 oynama yaratıp tavan/tabanı patlatmasın diye
+  // fiyatın maksimum binde 2'si ile sınırlandırılır.
+  const proportional = Math.max(0.01, Math.round(p * 0.002 * 100) / 100);
+  return Math.min(cap, proportional);
 }
 
 /** Sapma büyüklüğüne göre tek bir 2 saniyelik adımda yapılabilecek makul adım boyutları. */
 export function getDeviationSteps(maxDev) {
-  if (maxDev <= 0.09) return [0.01, 0.02, 0.03];
-  if (maxDev <= 0.10) return [0.01, 0.02, 0.03, 0.04];
+  if (maxDev <= 0.02) return [0.01];
+  if (maxDev <= 0.05) return [0.01, 0.02];
+  if (maxDev <= 0.10) return [0.01, 0.02, 0.03];
   return [0.02, 0.03, 0.04, 0.05];
 }
 
 /**
  * 2 saniyede bir hisse fiyatlarına kontrollü rastgele sapma uygular:
- * - 0 - 50 TL: [-0.09, +0.09]
- * - 50 - 200 TL: [-0.10, +0.10]
- * - 200+ TL: [-0.20, +0.20]
- * - Yön: Tamamen rastgele, sırayla (+, -) değil.
- * - Çok fazla üst üste aynı yönde gitmeyi önler (maksimum 3 ardışık hareket).
- * - Belirlenen sınırları ASLA aşmaz.
- * - Gerçek fiyata olan kümülatif sapma kesinlikle [-maxDev, +maxDev] arasındadır.
+ * - Borsa İstanbul günlük fiyat marjı %10'dur (taban -%10, tavan +%10).
+ * - Hisse tavana kitlemişse (%9.85+) veya tabana kitlemişse (-%9.85-) tahta kilitlenir, HİÇBİR SAPMA YAPILMAZ.
+ * - Sapmalar hiçbir koşulda günlük %10 marjını (tavan/taban fiyatını) aşamaz.
+ * - 0 - 50 TL: max [-0.09, +0.09] (düşük fiyatlılarda orantılı)
+ * - 50 - 200 TL: max [-0.10, +0.10]
+ * - 200+ TL: max [-0.20, +0.20]
+ * - Yön: Tamamen rastgele, sırayla (+, -) değil (maksimum 3 ardışık hareket).
  */
 export function applyPriceDeviations(baseList, deviationState) {
   return baseList.map((item) => {
@@ -308,7 +317,19 @@ export function applyPriceDeviations(baseList, deviationState) {
       return item;
     }
 
+    const baseChange = Number(item.rawChange ?? item.change ?? 0);
+    // BIST kuralı: Tavana kitleyen (%9.85+) veya tabana kitleyen (-%9.85-) hisse kilitlidir, hareket etmez:
+    if (baseChange >= 9.85 || baseChange <= -9.85) {
+      return item;
+    }
+
     const basePrice = item.rawPrice ?? item.price;
+    const previous = Number(item.previousClose || (1 + baseChange / 100 !== 0 ? basePrice / (1 + baseChange / 100) : basePrice));
+
+    // BIST günlük tavan (+%9.95) ve taban (-%9.95) fiyat sınırları:
+    const ceilingPrice = previous > 0 ? Math.round(previous * 1.0995 * 100) / 100 : basePrice * 1.10;
+    const floorPrice = previous > 0 ? Math.round(previous * 0.9005 * 100) / 100 : Math.max(0.01, basePrice * 0.90);
+
     const maxDev = getMaxDeviation(basePrice);
     const steps = getDeviationSteps(maxDev);
     const state = deviationState[item.code] || { delta: 0, streak: 0, dir: 0 };
@@ -316,9 +337,9 @@ export function applyPriceDeviations(baseList, deviationState) {
 
     let dir = 0;
     // Sınır koruması: maksimum sapmayı aşmamak için zorunlu yön dönüşü
-    if (delta >= maxDev - 0.005) {
+    if (delta >= maxDev - 0.005 || (basePrice + delta >= ceilingPrice - 0.01)) {
       dir = -1;
-    } else if (delta <= -maxDev + 0.005) {
+    } else if (delta <= -maxDev + 0.005 || (basePrice + delta <= floorPrice + 0.01)) {
       dir = 1;
     } else if (streak >= 3) {
       // 3 veya daha fazla kez üst üste aynı yönde gittiyse ters yöne dön
@@ -339,12 +360,21 @@ export function applyPriceDeviations(baseList, deviationState) {
     if (nextDelta > maxDev) nextDelta = maxDev;
     if (nextDelta < -maxDev) nextDelta = -maxDev;
 
+    // Tavan / taban sınırını asla aşamaz:
+    if (basePrice + nextDelta > ceilingPrice) {
+      nextDelta = Math.round((ceilingPrice - basePrice) * 100) / 100;
+    } else if (basePrice + nextDelta < floorPrice) {
+      nextDelta = Math.round((floorPrice - basePrice) * 100) / 100;
+    }
+
     // Sınıra çarptığı için değişim olmadıysa ters yöne adım at
     if (nextDelta === delta) {
       dir = -dir;
       nextDelta = Math.round((delta + dir * step) * 100) / 100;
       if (nextDelta > maxDev) nextDelta = maxDev;
       if (nextDelta < -maxDev) nextDelta = -maxDev;
+      if (basePrice + nextDelta > ceilingPrice) nextDelta = Math.round((ceilingPrice - basePrice) * 100) / 100;
+      if (basePrice + nextDelta < floorPrice) nextDelta = Math.round((floorPrice - basePrice) * 100) / 100;
     }
 
     if (dir === lastDir) {
@@ -356,10 +386,15 @@ export function applyPriceDeviations(baseList, deviationState) {
 
     deviationState[item.code] = { delta: nextDelta, streak, dir: lastDir };
 
-    const newPrice = Math.max(0.01, Math.round((basePrice + nextDelta) * 100) / 100);
-    const previous = item.previousClose ?? (1 + item.change / 100 === 0 ? basePrice : basePrice / (1 + item.change / 100));
+    let newPrice = Math.max(0.01, Math.round((basePrice + nextDelta) * 100) / 100);
+    if (newPrice > ceilingPrice) newPrice = ceilingPrice;
+    if (newPrice < floorPrice) newPrice = floorPrice;
+
     const dayDelta = Math.round((newPrice - previous) * 100) / 100;
-    const change = previous > 0 ? Math.round(((newPrice - previous) / previous) * 10000) / 100 : item.change;
+    let change = previous > 0 ? Math.round(((newPrice - previous) / previous) * 10000) / 100 : baseChange;
+    // BIST %10 kesin tavan/taban kısıtı:
+    if (change > 9.95) change = 9.95;
+    if (change < -9.95) change = -9.95;
 
     return {
       ...item,
@@ -398,9 +433,16 @@ export function listFor(market, instruments) {
 }
 
 /** Sekmenin endeksi (Piyasa Durumu kartı). */
+const INDEX_CODE = { [BIST30]: "XU030", [BIST50]: "XU050", [PARTICIPATION]: "XKTUM" };
+const INDEX_MAX_AGE = 4 * 24 * 60 * 60; // saniye: hafta sonu kapanış değeri geçerli, daha eskisi gösterilmez
+
 export const indexFor = (market, instruments) => {
-  const code = market === BIST30 ? "XU030" : "XU100";
-  return instruments.find((item) => item.code === code) || null;
+  const code = INDEX_CODE[market] || "XU100";
+  const found = instruments.find((item) => item.code === code && item.assetClass === "index");
+  // Kaynaktan gerçekten gelmemiş / bayat endeks değeri gösterilmez; başka endeksin değeri de yerine konmaz.
+  if (!found || !(found.price > 0) || !(found.updatedAt > 0)) return null;
+  if (Date.now() / 1000 - found.updatedAt > INDEX_MAX_AGE) return null;
+  return found;
 };
 
 /** Yükselen / düşen payı. */

@@ -155,7 +155,7 @@ export default function News({ marketTab, setMarketTab, items, state, onOpen, on
         ) : (
           <div className="mk-empty">
             <Icon name="news" size={30} />
-            <b>{T(query ? "Sonuç bulunamadı" : "Haber akışı alınamadı")}</b>
+            <b>{T(query ? "Sonuç bulunamadı" : "Bu sekme için şu anda güncel haber bulunamadı.")}</b>
             <span>{T(query ? "Başka bir kelime dene." : "Birazdan tekrar dene.")}</span>
           </div>
         )}

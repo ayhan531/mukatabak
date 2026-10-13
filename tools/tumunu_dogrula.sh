@@ -9,6 +9,8 @@ PORT="${PORT:-8099}"
 VERI="${DATA_DIR:-/tmp/mk-dogrulama}"
 SIFRE="${ADMIN_PASSWORD:-Admin12345}"
 hata=0
+# Canlı borsa kaynağına erişilemeyen ortamlarda da testler çalışsın (yalnızca testlerde açılır).
+export MUKATABAK_TEST_QUOTES=1
 baslik() { printf '\n==== %s ====\n' "$1"; }
 
 baslik "1/5  Python derlemesi"
@@ -19,15 +21,16 @@ npx vite build >/tmp/mk-build.log 2>&1 && echo "TAMAM vite build" || { echo "SOR
 
 baslik "3/5  Backend test paketleri"
 ( cd tools && rm -f test_*.db
-  for t in admin_api_test.py market_admin_test.py admin_delete_test.py money_flow_test.py document_flow_test.py order_price_test.py test_news_feed.py; do
+  for t in admin_api_test.py market_admin_test.py admin_delete_test.py money_flow_test.py document_flow_test.py order_price_test.py t2_auto_settle_test.py test_news_feed.py; do
     printf '%-24s ' "$t"
     if timeout 300 python3 "$t" >/tmp/mk-$t.log 2>&1; then tail -1 /tmp/mk-$t.log; else echo "SORUN"; tail -3 /tmp/mk-$t.log; fi
   done
   rm -f test_*.db ) || hata=1
 
 baslik "3b/5  Arayuz birim testleri"
-node tools/market_hours_test.mjs | tail -1 || hata=1
-node tools/price_drift_test.mjs | tail -1 || hata=1
+for t in market_hours_test.mjs price_drift_test.mjs; do
+  if node tools/$t >/tmp/mk-$t.log 2>&1; then printf '%-24s ' "$t"; tail -1 /tmp/mk-$t.log; else printf '%-24s SORUN\n' "$t"; grep -v '^TAMAM' /tmp/mk-$t.log | head -5; hata=1; fi
+done
 
 baslik "4/5  Ornek veri + sunucu"
 rm -rf "$VERI"

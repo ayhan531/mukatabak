@@ -777,3 +777,8 @@
   .corporate-feedback { padding: 24px 18px; }
   .corporate-feedback h3 { font-size: 20px; }
 }
+
+.corporate-wa-btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.corporate-wa-float{position:fixed;right:18px;bottom:18px;z-index:30;display:inline-flex;align-items:center;gap:8px;background:#3b6cff;color:#fff;border-radius:999px;padding:12px 18px;font-size:14px;font-weight:700;text-decoration:none;box-shadow:0 10px 26px rgba(27,37,89,.28)}
+.corporate-wa-float:hover{background:#2f58d6}
+@media(max-width:460px){.corporate-wa-float{right:12px;bottom:12px;padding:12px 14px}.corporate-wa-float span{display:none}}

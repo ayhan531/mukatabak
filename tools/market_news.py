@@ -47,6 +47,16 @@ BIST_YOGUN = [
     ("CNN Türk", "https://www.cnnturk.com/feed/rss/ekonomi/news"),
     ("Anadolu Ajansı", "https://www.aa.com.tr/tr/rss/default?cat=ekonomi"),
     ("BloombergHT", "https://www.bloomberght.com/rss"),
+    ("Bigpara", "https://bigpara.hurriyet.com.tr/rss/"),
+    ("Paraanaliz", "https://www.paraanaliz.com/feed/"),
+    ("Foreks", "https://www.foreks.com/rss"),
+    ("Finans Gündem", "https://www.finansgundem.com/rss"),
+    ("NTV", "https://www.ntv.com.tr/ekonomi.rss"),
+    ("Yeni Şafak", "https://www.yenisafak.com/rss?xml=ekonomi"),
+    ("Mynet Finans", "https://finans.mynet.com/rss/"),
+    ("Haberler.com", "https://www.haberler.com/ekonomi/rss/"),
+    ("Dünya", "https://www.dunya.com/rss?dunya"),
+    ("Anadolu Ajansı", "https://www.aa.com.tr/tr/rss/default?cat=finans"),
 ]
 
 YENILEME_SANIYE = 600
@@ -107,8 +117,16 @@ XHARZ = (
     "YIGIT",
 )
 
+XU050 = (
+    "AEFES", "AKBNK", "AKSEN", "ALARK", "ASELS", "ASTOR", "BIMAS", "BRSAN", "BTCIM", "CANTE",
+    "CCOLA", "CIMSA", "DSTKF", "ECILC", "EFOR", "EKGYO", "ENKAI", "EREGL", "FROTO", "GARAN",
+    "GLRMK", "GUBRF", "HALKB", "HEKTS", "ISCTR", "KCHOL", "KRDMD", "KTLEV", "KUYAS", "MGROS",
+    "MIATK", "OYAKC", "PASEU", "PETKM", "PGSUS", "SAHOL", "SASA", "SISE", "TAVHL", "TCELL",
+    "THYAO", "TOASO", "TRALT", "TRMET", "TTKOM", "TUPRS", "TURSG", "ULKER", "VAKBN", "YKBNK",
+)
+
 XU100 = tuple(dict.fromkeys(XU030 + XU100_EK))
-SEKME_ENDEKSI = {1: set(XU100), 2: set(XU030), 3: set(XKTUM), 4: set(XTMTU), 5: set(XHARZ)}
+SEKME_ENDEKSI = {1: set(XU100), 2: set(XU030), 3: set(XKTUM), 4: set(XTMTU), 5: set(XHARZ), 8: set(XU050)}
 
 # Şirket kodu → şirket adı; sunucu açılışta gerçek listeyi veriyor (sirketleri_tanit).
 _SIRKET_ADLARI: dict[str, str] = {}
@@ -220,13 +238,14 @@ TURKIYE_KALIP = _kalip(TURKIYE)
 # Sekme konusu anahtarları (0: BIST Tüm ... 7: Döviz)
 SEKME_ANAHTARLARI = [
     ("bist", "borsa istanbul", "hisse*", "endeks*", "kap", "spk", "viop", "halka arz*", "temettü*"),
-    ("bist 100", "bist100", "xu100", "bist-100", "endeks*", "borsa istanbul"),
-    ("bist 30", "bist30", "xu030", "bist-30", "viop", "endeks kontrat*"),
+    ("bist 100", "bist100", "xu100", "bist-100"),
+    ("bist 30", "bist30", "xu030", "bist-30"),
     ("katılım*", "faizsiz", "islami finans", "kira sertifikası", "sukuk", "katılım endeks*"),
     ("temettü*", "kar payı", "kâr payı", "nakit temettü", "temettü verim*"),
     ("halka arz*", "borsada işlem görmeye", "ipo", "izahname*", "talep toplama*", "gong"),
     ("fon*", "yatırım fonu", "portföy*", "serbest fon*", "byf", "emeklilik fonu", "tefas"),
     ("dolar*", "euro", "kur", "altın*", "sterlin*", "döviz*", "ons", "gram*", "parite*"),
+    ("bist 50", "bist50", "xu050", "bist-50"),
 ]
 SEKME_KALIPLARI = [_kalip(k) for k in SEKME_ANAHTARLARI]
 
@@ -243,6 +262,7 @@ BING_SORGULARI = [
     ("halka arz Borsa İstanbul", "halka arz talep toplama SPK onay"),
     ("yatırım fonu portföy SPK", "TEFAS yatırım fonu getiri"),
     ("dolar euro altın kuru", "altın fiyatları döviz piyasası"),
+    ("BIST 50 endeksi", "BIST 50 hisseleri borsa"),
 ]
 
 # Haber değil: fiyat sorgu sayfaları, çevirici sayfaları, tekrar eden kotasyonlar.
@@ -289,12 +309,25 @@ def _bing_sorgu(sorgu: str) -> tuple:
     return [], ""
 
 
+def _uye_sorgulari(sekme: int) -> list[str]:
+    """Endeks sekmeleri için: o sekmeye ait şirket kodlarıyla gruplu aramalar
+    (THYAO OR ASELS ... hisse). Sekmeye özgü şirketler haber akışını doldurur."""
+    kume = {2: set(XU030), 8: set(XU050) - set(XU030),
+            1: set(XU100) - set(XU050), 3: set(XKTUM) - set(XU100)}.get(sekme)
+    if not kume:
+        return []
+    kodlar = sorted(kume)
+    gruplar = [kodlar[i:i + 5] for i in range(0, len(kodlar), 5)]
+    return [" OR ".join(g) + " hisse" for g in gruplar[:12]]
+
+
 def _bing_oku(sekme: int, simdi: float) -> list[dict]:
     """Sekmenin konusuyla arama yapar; fotoğrafı haber sayfasından alır."""
     dugumler: list = []
-    for sorgu in BING_SORGULARI[sekme]:
-        parca, ad_alani = _bing_sorgu(sorgu)
-        dugumler.extend((dugum, ad_alani) for dugum in parca)   # kaynak adı ad alanına bağlı
+    sorgular = list(BING_SORGULARI[sekme]) + _uye_sorgulari(sekme)
+    with ThreadPoolExecutor(max_workers=6) as sorgu_havuzu:
+        for parca, ad_alani in sorgu_havuzu.map(_bing_sorgu, sorgular):
+            dugumler.extend((dugum, ad_alani) for dugum in parca)   # kaynak adı ad alanına bağlı
 
     adaylar: list[dict] = []
     gorulen: set[str] = set()
@@ -318,7 +351,7 @@ def _bing_oku(sekme: int, simdi: float) -> list[dict]:
             damga = parsedate_to_datetime(dugum.findtext("pubDate") or "").timestamp()
         except (TypeError, ValueError, OverflowError):
             damga = simdi
-        if damga < simdi - 2 * 86400:
+        if damga < simdi - 3 * 86400:
             continue  # 2 gunden eski haber havuza hic girmesin (guncellik icin)
         kaynak = (dugum.findtext("{%s}Source" % ns) or "").strip() if ns else ""
         adaylar.append({
@@ -431,7 +464,7 @@ def _besleme_oku(ad: str, adres: str, simdi: float, gorsel_sart: bool) -> list[d
             damga = parsedate_to_datetime(dugum.findtext("pubDate") or "").timestamp()
         except (TypeError, ValueError, OverflowError):
             damga = simdi
-        if damga > simdi + 3600 or damga < simdi - 2 * 86400:
+        if damga > simdi + 3600 or damga < simdi - 3 * 86400:
             continue  # 2 gunden eski haber havuza hic girmesin (guncellik icin)
         cikti.append({
             "id": baglanti,
@@ -510,6 +543,18 @@ def _tazele() -> None:
     _onbellek.update(items=fotolu, updated=simdi, errors=hatalar)
 
 
+KADEME_SEKMELERI = (2, 8, 1)          # dardan genişe: BIST 30, BIST 50, BIST 100
+_KADEME_KUMELERI = ((2, set(XU030)), (8, set(XU050)), (1, set(XU100)))
+
+
+def _kademe(kodlar) -> int:
+    """Haberdeki şirketlerin düştüğü en dar endeks sekmesi (yoksa 0)."""
+    for sekme, kume in _KADEME_KUMELERI:
+        if kodlar & kume:
+            return sekme
+    return 0
+
+
 def _sekme_puani(haber: dict, sekme: int) -> int:
     """Haberin sekmeye uygunluğu: 3 tam isabet, 2 endeks şirketi, 1 genel borsa, 0 uzak."""
     metin = haber["_metin"]
@@ -527,6 +572,16 @@ def _sekme_puani(haber: dict, sekme: int) -> int:
         return 0
     if sekme == 0:
         return 3 if tam else (2 if haber["kodlar"] else 0)
+    if sekme in KADEME_SEKMELERI:
+        # BIST 30 / 50 / 100: haber ya o endeksi açıkça anıyor ya da şirketi en dar
+        # bu kademeye düşüyor. Böylece aynı haber üç sekmede birden çıkmaz.
+        if tam:
+            return 3
+        return 2 if _kademe(haber["kodlar"]) == sekme else 0
+    if sekme == 3:                                   # Katılım: konu anahtarı ya da yalnız katılım endeksi üyesi
+        if tam:
+            return 3
+        return 2 if (uye and not (haber["kodlar"] & set(XU100))) else 0
     if uye and tam:
         return 3
     if uye:
@@ -568,7 +623,7 @@ def sekme_haberleri(sekme: int, en_az: int = 12) -> tuple[list[dict], dict]:
 
     # Arama sonucu da olsa konuyla ya da BIST ile ilgisi olmayan haber girmez.
     for haber in sorted(hedefli, key=lambda h: -h["published_ts"]):
-        if _sekme_puani(haber, sekme) >= 2 or _sekme_puani(haber, 0) >= 2:
+        if _sekme_puani(haber, sekme) >= 2 or (sekme == 0 and _sekme_puani(haber, 0) >= 2):
             ekle(haber)
 
     uyanlar = [(h, _sekme_puani(h, sekme)) for h in hepsi]
@@ -576,9 +631,9 @@ def sekme_haberleri(sekme: int, en_az: int = 12) -> tuple[list[dict], dict]:
                         key=lambda h: (-_sekme_puani(h, sekme), -h["published_ts"])):
         ekle(haber)
 
-    if len(secilen) < en_az:
-        # Yabancı borsa haberi ya da konu dışı haber girmez: az haber göstermek,
-        # yanlış haber göstermekten iyi.
+    if sekme == 0 and len(secilen) < en_az:
+        # Yalnız "BIST Tüm" sekmesi genel borsa haberiyle tamamlanır; öteki sekmeler
+        # kendi konusundan haber bulamazsa az haber gösterir, başka sekmenin haberini değil.
         for haber in sorted([h for h in hepsi if _sekme_puani(h, 0) >= 2], key=lambda h: -h["published_ts"]):
             if len(secilen) >= en_az:
                 break

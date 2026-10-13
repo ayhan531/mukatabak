@@ -1712,7 +1712,10 @@ def refresh_market(conn: sqlite3.Connection) -> list[dict]:
     latest = conn.execute("SELECT MAX(updated_at) AS updated FROM market_cache").fetchone()["updated"] or 0
     status_row = conn.execute("SELECT updated_at FROM market_status WHERE id=1").fetchone()
     status_updated = status_row["updated_at"] if status_row else 0
-    if now() - int(max(latest, status_updated)) < MARKET_REFRESH_SECONDS:
+    # Endeks/kur satırları kendi aralığıyla güncellendiği için "en yeni kayıt" taze görünebilir;
+    # hiç hisse satırı yoksa (yeni kurulum / soğuk başlangıç) bekleme, hemen kaynaktan çek.
+    hisse_var = conn.execute("SELECT 1 FROM market_cache WHERE asset_class='stock' AND updated_at>0 LIMIT 1").fetchone()
+    if hisse_var and now() - int(max(latest, status_updated)) < MARKET_REFRESH_SECONDS:
         refresh_company_metadata(conn)
         apply_manual_prices(conn)
         conn.commit()
@@ -5998,6 +6001,21 @@ def reduce_position(conn: sqlite3.Connection, user_id: int, symbol: str, quantit
         conn.execute("DELETE FROM positions WHERE id=?", (row["id"],))
 
 
+def piyasayi_isit() -> None:
+    """Açılışta fiyat kaynağını arka planda bir kez okur: ilk ziyaretçi boş hisse listesi görmesin."""
+    def calis() -> None:
+        try:
+            conn = connect_db()
+            try:
+                refresh_market(conn)
+            finally:
+                conn.close()
+        except Exception as exc:  # açılışı asla engellemez
+            print(f"Piyasa ısıtma atlandı: {exc}")
+
+    threading.Thread(target=calis, daemon=True).start()
+
+
 def haberleri_isit() -> None:
     """Sekme haberlerini arka planda önceden hazırlar; kullanıcı sekmeye
     dokunduğunda liste hazır gelir, ilk açılışta beklemez."""
@@ -6018,6 +6036,7 @@ if __name__ == "__main__":
     init_db()
     haberleri_isit()
     katilimi_esitle()
+    piyasayi_isit()
     server = ThreadingHTTPServer(("", PORT), AppHandler)
     print(f"Mukatabak backend running at http://localhost:{PORT}")
     print(f"Database: {DB_PATH}")
